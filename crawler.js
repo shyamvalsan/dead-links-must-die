@@ -3,8 +3,8 @@ const cheerio = require('cheerio');
 const { URL } = require('url');
 
 // Configuration
-const CRAWL_CONCURRENCY = 20; // Crawl 20 pages simultaneously
-const CRAWL_TIMEOUT = 10000; // 10 seconds per page
+const CRAWL_CONCURRENCY = 50; // Crawl 50 pages simultaneously (2.5x increase!)
+const CRAWL_TIMEOUT = 8000; // 8 seconds per page (slightly faster)
 const MAX_PAGES = 10000; // Much higher limit (10k pages)
 
 /**

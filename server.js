@@ -1,7 +1,7 @@
 const express = require('express');
 const path = require('path');
 const { crawlWebsite } = require('./crawler');
-const { checkLinks } = require('./checker');
+const { checkLinks, checkPageLinks } = require('./checker');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -106,18 +106,24 @@ app.get('/api/scan/:scanId', (req, res) => {
   res.json(scan);
 });
 
-// Perform the actual scanning with PIPELINE ARCHITECTURE
+// Perform the actual scanning with TRUE PIPELINE ARCHITECTURE
+// Check links as pages are crawled for maximum speed!
 async function performScan(scanId, url) {
   const scan = activeScans.get(scanId);
 
   try {
-    // Start crawling
+    // Start scanning
     scan.status = 'scanning';
     scan.progress.stage = 'scanning';
 
-    console.log(`🚀 Starting scan for ${url}`);
+    console.log(`🚀 Starting TURBO scan for ${url}`);
 
-    // Crawl website with parallel processing
+    let linksChecked = 0;
+    let totalLinksFound = 0;
+    const checkedUrls = new Set();
+    const allBrokenLinks = [];
+
+    // TRUE PIPELINE: Check links from each page as soon as it's crawled!
     const { pages, crawledUrls } = await crawlWebsite(
       url,
       // Progress callback
@@ -125,38 +131,53 @@ async function performScan(scanId, url) {
         scan.progress.pagesFound = progress.pagesFound;
         scan.progress.pagesCrawled = progress.pagesCrawled;
       },
-      // Page crawled callback (for pipeline - not used yet, but available)
-      null
+      // Page crawled callback - THE MAGIC HAPPENS HERE!
+      async (page) => {
+        // Immediately check links from this page (don't wait for all crawling!)
+        const linksToCheck = page.links.filter(link => {
+          if (checkedUrls.has(link.url)) return false;
+          checkedUrls.add(link.url);
+          return !crawledUrls.has(link.url); // Skip internal pages we crawled
+        });
+
+        totalLinksFound += page.links.length;
+        scan.progress.totalLinks = totalLinksFound;
+
+        // Check this page's links in parallel with crawling other pages
+        for (const link of linksToCheck) {
+          // Fire and forget - check in background
+          checkUrlInBackground(link, page, scan, crawledUrls).then((result) => {
+            linksChecked++;
+            scan.progress.linksChecked = linksChecked;
+
+            if (result && !result.ok) {
+              scan.progress.brokenLinks = (scan.progress.brokenLinks || 0) + 1;
+            }
+
+            // Calculate ETA
+            const elapsed = Date.now() - scan.progress.startTime;
+            const rate = linksChecked / elapsed;
+            const remaining = Math.max(0, totalLinksFound - linksChecked);
+            scan.progress.eta = remaining > 0 ? Math.round(remaining / rate) : 0;
+          });
+        }
+      }
     );
 
     console.log(`✅ Crawling complete: ${pages.length} pages`);
+    console.log(`🔍 Waiting for remaining link checks to complete...`);
 
-    // Now check all links with the crawled URLs to skip internal links
-    scan.progress.stage = 'checking_links';
+    // Wait for all background checks to finish
+    while (linksChecked < checkedUrls.size) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
 
-    // Calculate total links
-    scan.progress.totalLinks = pages.reduce((sum, page) => sum + page.links.length, 0);
-
-    console.log(`🔍 Starting link check: ${scan.progress.totalLinks} total links`);
-
+    // Compile final results
     const results = await checkLinks(
       pages,
-      crawledUrls, // Pass crawled URLs so checker can skip them
-      // Progress callback
-      (progress) => {
-        scan.progress.linksChecked = progress.checked;
-        scan.progress.brokenLinks = progress.broken;
-
-        // Calculate ETA
-        const elapsed = Date.now() - scan.progress.startTime;
-        const rate = progress.checked / elapsed;
-        const remaining = scan.progress.totalLinks - progress.checked;
-        scan.progress.eta = remaining > 0 ? Math.round(remaining / rate) : 0;
-      },
-      // Broken link found callback - REAL-TIME STREAMING!
-      (brokenLink) => {
-        scan.liveBrokenLinks.push(brokenLink);
-      }
+      crawledUrls,
+      () => {}, // Progress already tracked
+      () => {}  // Broken links already tracked
     );
 
     // Complete
@@ -164,12 +185,70 @@ async function performScan(scanId, url) {
     scan.progress.stage = 'completed';
     scan.results = results;
 
-    console.log(`✅ Scan complete! Found ${results.brokenLinks.length} broken links`);
+    console.log(`✅ TURBO scan complete! Found ${scan.liveBrokenLinks.length} broken links`);
+    console.log(`⚡ Checked ${linksChecked} links across ${pages.length} pages`);
 
   } catch (error) {
     console.error('Scan error:', error);
     scan.status = 'error';
     scan.error = error.message;
+  }
+}
+
+// Helper to check a single URL in background (for pipeline)
+async function checkUrlInBackground(link, page, scan, crawledUrls) {
+  const { checkLinks } = require('./checker');
+  const axios = require('axios');
+  const http = require('http');
+  const https = require('https');
+
+  try {
+    const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 500, timeout: 2000 });
+    const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 500, timeout: 2000 });
+
+    const response = await axios.head(link.url, {
+      timeout: 2000,
+      maxRedirects: 5,
+      validateStatus: null,
+      httpAgent,
+      httpsAgent,
+      headers: { 'User-Agent': 'DeadLinksMustDie/3.0 (Turbo Scanner)' }
+    });
+
+    const ok = response.status >= 200 && response.status < 400;
+
+    if (!ok) {
+      // Found broken link - stream it immediately!
+      const brokenLinkData = {
+        url: link.url,
+        status: response.status,
+        message: response.status ? `HTTP ${response.status}` : 'Request failed',
+        occurrences: [{
+          page: page.url,
+          text: link.text,
+          type: link.type
+        }]
+      };
+
+      scan.liveBrokenLinks.push(brokenLinkData);
+    }
+
+    return { ok, status: response.status };
+  } catch (error) {
+    // Broken link
+    const brokenLinkData = {
+      url: link.url,
+      status: 0,
+      message: error.code || error.message || 'Request failed',
+      occurrences: [{
+        page: page.url,
+        text: link.text,
+        type: link.type
+      }]
+    };
+
+    scan.liveBrokenLinks.push(brokenLinkData);
+    return { ok: false, status: 0 };
   }
 }
 

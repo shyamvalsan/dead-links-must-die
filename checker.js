@@ -1,8 +1,25 @@
 const axios = require('axios');
+const http = require('http');
+const https = require('https');
 
 // Configuration
-const CONCURRENCY = 100; // Check 100 links simultaneously
-const TIMEOUT = 3000; // 3 seconds (aggressive but fast)
+const CONCURRENCY = 500; // Check 500 links simultaneously (5x increase!)
+const TIMEOUT = 2000; // 2 seconds (even more aggressive)
+
+// Connection pooling for massive performance boost
+const httpAgent = new http.Agent({
+  keepAlive: true,
+  maxSockets: 500,
+  maxFreeSockets: 100,
+  timeout: TIMEOUT
+});
+
+const httpsAgent = new https.Agent({
+  keepAlive: true,
+  maxSockets: 500,
+  maxFreeSockets: 100,
+  timeout: TIMEOUT
+});
 
 /**
  * Check all links and images for broken/dead links with massive parallelization
@@ -142,8 +159,10 @@ async function checkUrl(url) {
       timeout: TIMEOUT,
       maxRedirects: 5,
       validateStatus: null, // Don't throw on any status
+      httpAgent: httpAgent,
+      httpsAgent: httpsAgent,
       headers: {
-        'User-Agent': 'DeadLinksMustDie/2.0 (Fast Scanner)'
+        'User-Agent': 'DeadLinksMustDie/3.0 (Turbo Scanner)'
       }
     });
 
@@ -191,4 +210,38 @@ function getStatusMessage(status) {
   return messages[status] || `HTTP ${status}`;
 }
 
-module.exports = { checkLinks };
+/**
+ * Streaming link checker - checks links from a single page immediately
+ * Used for pipeline architecture
+ */
+async function checkPageLinks(page, crawledPages, onBrokenLinkFound) {
+  const linksToCheck = page.links.filter(link => !crawledPages.has(link.url));
+
+  // Process in batches
+  for (let i = 0; i < linksToCheck.length; i += CONCURRENCY) {
+    const batch = linksToCheck.slice(i, i + CONCURRENCY);
+
+    const checkPromises = batch.map(async (link) => {
+      const checkResult = await checkUrl(link.url);
+
+      if (!checkResult.ok && onBrokenLinkFound) {
+        onBrokenLinkFound({
+          url: link.url,
+          status: checkResult.status,
+          message: checkResult.message,
+          occurrences: [{
+            page: page.url,
+            text: link.text,
+            type: link.type
+          }]
+        });
+      }
+
+      return checkResult;
+    });
+
+    await Promise.all(checkPromises);
+  }
+}
+
+module.exports = { checkLinks, checkPageLinks };
