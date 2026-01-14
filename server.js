@@ -43,7 +43,8 @@ app.post('/api/scan', async (req, res) => {
       startTime: Date.now(),
       eta: null
     },
-    results: null
+    results: null,
+    liveBrokenLinks: [] // Real-time broken links as they're found
   });
 
   res.json({ scanId });
@@ -105,40 +106,65 @@ app.get('/api/scan/:scanId', (req, res) => {
   res.json(scan);
 });
 
-// Perform the actual scanning
+// Perform the actual scanning with PIPELINE ARCHITECTURE
 async function performScan(scanId, url) {
   const scan = activeScans.get(scanId);
 
   try {
-    // Stage 1: Crawl website to discover all pages
-    scan.status = 'crawling';
-    scan.progress.stage = 'crawling';
+    // Start crawling
+    scan.status = 'scanning';
+    scan.progress.stage = 'scanning';
 
-    const pages = await crawlWebsite(url, (progress) => {
-      scan.progress.pagesFound = progress.pagesFound;
-      scan.progress.pagesCrawled = progress.pagesCrawled;
-    });
+    console.log(`🚀 Starting scan for ${url}`);
 
-    // Stage 2: Check all links and images
-    scan.status = 'checking';
-    scan.progress.stage = 'checking';
+    // Crawl website with parallel processing
+    const { pages, crawledUrls } = await crawlWebsite(
+      url,
+      // Progress callback
+      (progress) => {
+        scan.progress.pagesFound = progress.pagesFound;
+        scan.progress.pagesCrawled = progress.pagesCrawled;
+      },
+      // Page crawled callback (for pipeline - not used yet, but available)
+      null
+    );
+
+    console.log(`✅ Crawling complete: ${pages.length} pages`);
+
+    // Now check all links with the crawled URLs to skip internal links
+    scan.progress.stage = 'checking_links';
+
+    // Calculate total links
     scan.progress.totalLinks = pages.reduce((sum, page) => sum + page.links.length, 0);
 
-    const results = await checkLinks(pages, (progress) => {
-      scan.progress.linksChecked = progress.checked;
-      scan.progress.brokenLinks = progress.broken;
+    console.log(`🔍 Starting link check: ${scan.progress.totalLinks} total links`);
 
-      // Calculate ETA
-      const elapsed = Date.now() - scan.progress.startTime;
-      const rate = progress.checked / elapsed;
-      const remaining = scan.progress.totalLinks - progress.checked;
-      scan.progress.eta = remaining > 0 ? Math.round(remaining / rate) : 0;
-    });
+    const results = await checkLinks(
+      pages,
+      crawledUrls, // Pass crawled URLs so checker can skip them
+      // Progress callback
+      (progress) => {
+        scan.progress.linksChecked = progress.checked;
+        scan.progress.brokenLinks = progress.broken;
+
+        // Calculate ETA
+        const elapsed = Date.now() - scan.progress.startTime;
+        const rate = progress.checked / elapsed;
+        const remaining = scan.progress.totalLinks - progress.checked;
+        scan.progress.eta = remaining > 0 ? Math.round(remaining / rate) : 0;
+      },
+      // Broken link found callback - REAL-TIME STREAMING!
+      (brokenLink) => {
+        scan.liveBrokenLinks.push(brokenLink);
+      }
+    );
 
     // Complete
     scan.status = 'completed';
     scan.progress.stage = 'completed';
     scan.results = results;
+
+    console.log(`✅ Scan complete! Found ${results.brokenLinks.length} broken links`);
 
   } catch (error) {
     console.error('Scan error:', error);

@@ -15,6 +15,8 @@ const linksCheckedEl = document.getElementById('links-checked');
 const brokenCountEl = document.getElementById('broken-count');
 const progressBar = document.getElementById('progress-bar');
 const etaText = document.getElementById('eta-text');
+const liveBrokenLinksSection = document.getElementById('live-broken-links-section');
+const liveBrokenLinksContainer = document.getElementById('live-broken-links-container');
 
 // Results elements
 const resultPages = document.getElementById('result-pages');
@@ -33,6 +35,7 @@ const retryButton = document.getElementById('retry-button');
 
 // State
 let currentEventSource = null;
+let displayedBrokenLinks = 0; // Track how many broken links we've already displayed
 
 // Event Listeners
 scanForm.addEventListener('submit', handleScanSubmit);
@@ -106,7 +109,9 @@ function updateProgress(data) {
   // Update stage
   const stageMessages = {
     initializing: '🔍 Initializing scan...',
+    scanning: '🕷️ Crawling website...',
     crawling: '🕷️ Crawling website...',
+    checking_links: '🔗 Checking links...',
     checking: '🔗 Checking links...',
     completed: '✅ Scan complete!'
   };
@@ -138,10 +143,43 @@ function updateProgress(data) {
       const minutes = Math.ceil(seconds / 60);
       etaText.textContent = `Estimated time remaining: ${minutes} minute${minutes > 1 ? 's' : ''}`;
     }
-  } else if (progress.stage === 'checking') {
+  } else if (progress.stage === 'checking' || progress.stage === 'checking_links') {
     etaText.textContent = 'Calculating time remaining...';
   } else {
     etaText.textContent = 'Scanning...';
+  }
+
+  // Update live broken links (REAL-TIME!)
+  if (data.liveBrokenLinks && data.liveBrokenLinks.length > 0) {
+    // Show section if hidden
+    if (liveBrokenLinksSection.classList.contains('hidden')) {
+      liveBrokenLinksSection.classList.remove('hidden');
+    }
+
+    // Display any new broken links
+    const newBrokenLinks = data.liveBrokenLinks.slice(displayedBrokenLinks);
+
+    newBrokenLinks.forEach(link => {
+      const linkElement = document.createElement('div');
+      linkElement.className = 'live-broken-item';
+
+      const occurrencesText = link.occurrences.length > 3
+        ? `Found on ${link.occurrences.length} pages`
+        : link.occurrences.map(occ => occ.page).join(', ');
+
+      linkElement.innerHTML = `
+        <span class="live-broken-url">${escapeHtml(link.url)}</span>
+        <span class="live-broken-status">${escapeHtml(link.status)} - ${escapeHtml(link.message)}</span>
+        <div class="live-broken-pages">
+          ${escapeHtml(occurrencesText)}
+        </div>
+      `;
+
+      // Add to top of container (most recent first)
+      liveBrokenLinksContainer.insertBefore(linkElement, liveBrokenLinksContainer.firstChild);
+    });
+
+    displayedBrokenLinks = data.liveBrokenLinks.length;
   }
 }
 
@@ -254,6 +292,11 @@ function resetToInput() {
   brokenLinksContainer.innerHTML = '';
   redirectsContainer.innerHTML = '';
   pagesContainer.innerHTML = '';
+
+  // Clear live broken links
+  liveBrokenLinksContainer.innerHTML = '';
+  liveBrokenLinksSection.classList.add('hidden');
+  displayedBrokenLinks = 0;
 
   // Close SSE connection if active
   if (currentEventSource) {

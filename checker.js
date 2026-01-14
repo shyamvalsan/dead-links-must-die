@@ -1,9 +1,13 @@
 const axios = require('axios');
 
+// Configuration
+const CONCURRENCY = 100; // Check 100 links simultaneously
+const TIMEOUT = 3000; // 3 seconds (aggressive but fast)
+
 /**
- * Check all links and images for broken/dead links
+ * Check all links and images for broken/dead links with massive parallelization
  */
-async function checkLinks(pages, onProgress) {
+async function checkLinks(pages, crawledPages, onProgress, onBrokenLinkFound) {
   // Collect all unique links to check
   const linksToCheck = new Map(); // url -> [{ page, linkData }]
 
@@ -19,10 +23,20 @@ async function checkLinks(pages, onProgress) {
     }
   }
 
+  // Filter out internal links we already crawled (they're valid!)
+  const linksToCheckArray = Array.from(linksToCheck.entries());
+  const filteredLinks = linksToCheckArray.filter(([url]) => !crawledPages.has(url));
+
+  console.log(`📊 Total unique links: ${linksToCheckArray.length}`);
+  console.log(`✅ Skipping ${linksToCheckArray.length - filteredLinks.length} internal links (already crawled)`);
+  console.log(`🔍 Checking ${filteredLinks.length} external/uncrawled links`);
+
   const results = {
     summary: {
       totalPages: pages.length,
-      totalLinks: Array.from(linksToCheck.keys()).length,
+      totalLinks: linksToCheckArray.length,
+      linksChecked: 0,
+      linksSkipped: linksToCheckArray.length - filteredLinks.length,
       brokenLinks: 0,
       workingLinks: 0,
       redirects: 0
@@ -35,39 +49,54 @@ async function checkLinks(pages, onProgress) {
   let checked = 0;
   let broken = 0;
 
-  // Check each unique link
-  for (const [url, occurrences] of linksToCheck.entries()) {
-    const checkResult = await checkUrl(url);
-    checked++;
+  // Process links in batches with massive concurrency
+  for (let i = 0; i < filteredLinks.length; i += CONCURRENCY) {
+    const batch = filteredLinks.slice(i, i + CONCURRENCY);
 
-    // Update progress
-    if (onProgress) {
-      onProgress({ checked, broken });
-    }
+    // Check all links in this batch simultaneously
+    const checkPromises = batch.map(async ([url, occurrences]) => {
+      const checkResult = await checkUrl(url);
 
-    if (!checkResult.ok) {
-      broken++;
-      results.brokenLinks.push({
-        url,
-        status: checkResult.status,
-        message: checkResult.message,
-        occurrences: occurrences.map(o => ({
-          page: o.page,
-          text: o.link.text,
-          type: o.link.type
-        }))
-      });
-    } else if (checkResult.redirected) {
-      results.redirects.push({
-        url,
-        redirectTo: checkResult.finalUrl,
-        occurrences: occurrences.map(o => ({
-          page: o.page,
-          text: o.link.text,
-          type: o.link.type
-        }))
-      });
-    }
+      checked++;
+
+      // Update progress
+      if (onProgress) {
+        onProgress({ checked: checked + results.summary.linksSkipped, broken });
+      }
+
+      if (!checkResult.ok) {
+        broken++;
+        const brokenLinkData = {
+          url,
+          status: checkResult.status,
+          message: checkResult.message,
+          occurrences: occurrences.map(o => ({
+            page: o.page,
+            text: o.link.text,
+            type: o.link.type
+          }))
+        };
+        results.brokenLinks.push(brokenLinkData);
+
+        // Immediately notify about broken link (real-time!)
+        if (onBrokenLinkFound) {
+          onBrokenLinkFound(brokenLinkData);
+        }
+      } else if (checkResult.redirected) {
+        results.redirects.push({
+          url,
+          redirectTo: checkResult.finalUrl,
+          occurrences: occurrences.map(o => ({
+            page: o.page,
+            text: o.link.text,
+            type: o.link.type
+          }))
+        });
+      }
+    });
+
+    // Wait for this batch to complete before moving to next
+    await Promise.all(checkPromises);
   }
 
   // Organize results by page
@@ -97,6 +126,7 @@ async function checkLinks(pages, onProgress) {
   }
 
   results.summary.brokenLinks = results.brokenLinks.length;
+  results.summary.linksChecked = checked + results.summary.linksSkipped;
   results.summary.workingLinks = results.summary.totalLinks - results.brokenLinks.length - results.redirects.length;
   results.summary.redirects = results.redirects.length;
 
@@ -104,27 +134,27 @@ async function checkLinks(pages, onProgress) {
 }
 
 /**
- * Check if a single URL is accessible
+ * Check if a single URL is accessible (HEAD only, fast!)
  */
 async function checkUrl(url) {
   try {
     const response = await axios.head(url, {
-      timeout: 15000,
+      timeout: TIMEOUT,
       maxRedirects: 5,
       validateStatus: null, // Don't throw on any status
       headers: {
-        'User-Agent': 'DeadLinksMustDie/1.0'
+        'User-Agent': 'DeadLinksMustDie/2.0 (Fast Scanner)'
       }
     });
 
-    const redirected = response.request.res.responseUrl !== url;
+    const redirected = response.request.res?.responseUrl && response.request.res.responseUrl !== url;
 
     if (response.status >= 200 && response.status < 400) {
       return {
         ok: true,
         status: response.status,
         redirected,
-        finalUrl: response.request.res.responseUrl
+        finalUrl: response.request.res?.responseUrl || url
       };
     } else {
       return {
@@ -134,40 +164,12 @@ async function checkUrl(url) {
       };
     }
   } catch (error) {
-    // If HEAD fails, try GET (some servers don't support HEAD)
-    try {
-      const response = await axios.get(url, {
-        timeout: 15000,
-        maxRedirects: 5,
-        validateStatus: null,
-        headers: {
-          'User-Agent': 'DeadLinksMustDie/1.0'
-        }
-      });
-
-      const redirected = response.request.res.responseUrl !== url;
-
-      if (response.status >= 200 && response.status < 400) {
-        return {
-          ok: true,
-          status: response.status,
-          redirected,
-          finalUrl: response.request.res.responseUrl
-        };
-      } else {
-        return {
-          ok: false,
-          status: response.status,
-          message: getStatusMessage(response.status)
-        };
-      }
-    } catch (getError) {
-      return {
-        ok: false,
-        status: 0,
-        message: getError.code || getError.message || 'Request failed'
-      };
-    }
+    // No GET fallback - fail fast!
+    return {
+      ok: false,
+      status: 0,
+      message: error.code || error.message || 'Request failed'
+    };
   }
 }
 

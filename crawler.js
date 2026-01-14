@@ -2,14 +2,20 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 const { URL } = require('url');
 
+// Configuration
+const CRAWL_CONCURRENCY = 20; // Crawl 20 pages simultaneously
+const CRAWL_TIMEOUT = 10000; // 10 seconds per page
+const MAX_PAGES = 10000; // Much higher limit (10k pages)
+
 /**
- * Crawl a website and discover all pages, links, and images
+ * Crawl a website and discover all pages, links, and images with massive parallelization
  */
-async function crawlWebsite(startUrl, onProgress) {
+async function crawlWebsite(startUrl, onProgress, onPageCrawled) {
   const baseUrl = new URL(startUrl);
   const visited = new Set();
   const toVisit = [startUrl];
   const pages = [];
+  const crawling = new Set(); // Track pages currently being crawled
 
   // Normalize URL (remove fragments, trailing slashes)
   function normalizeUrl(url) {
@@ -45,38 +51,32 @@ async function crawlWebsite(startUrl, onProgress) {
     }
   }
 
-  while (toVisit.length > 0) {
-    const currentUrl = toVisit.shift();
-    const normalizedUrl = normalizeUrl(currentUrl);
+  // Crawl a single page
+  async function crawlPage(url) {
+    const normalizedUrl = normalizeUrl(url);
 
-    if (!normalizedUrl || visited.has(normalizedUrl)) {
-      continue;
+    if (!normalizedUrl || visited.has(normalizedUrl) || crawling.has(normalizedUrl)) {
+      return null;
     }
 
     visited.add(normalizedUrl);
-
-    // Update progress
-    if (onProgress) {
-      onProgress({
-        pagesFound: visited.size,
-        pagesCrawled: pages.length
-      });
-    }
+    crawling.add(normalizedUrl);
 
     try {
       // Fetch the page
       const response = await axios.get(normalizedUrl, {
-        timeout: 10000,
+        timeout: CRAWL_TIMEOUT,
         maxRedirects: 5,
         headers: {
-          'User-Agent': 'DeadLinksMustDie/1.0'
+          'User-Agent': 'DeadLinksMustDie/2.0 (Fast Scanner)'
         }
       });
 
       // Only process HTML pages
       const contentType = response.headers['content-type'] || '';
       if (!contentType.includes('text/html')) {
-        continue;
+        crawling.delete(normalizedUrl);
+        return null;
       }
 
       const html = response.data;
@@ -84,6 +84,7 @@ async function crawlWebsite(startUrl, onProgress) {
 
       const links = [];
       const images = [];
+      const newInternalLinks = [];
 
       // Extract all links
       $('a[href]').each((i, elem) => {
@@ -103,8 +104,11 @@ async function crawlWebsite(startUrl, onProgress) {
         // Add internal links to crawl queue
         if (isInternalUrl(absoluteUrl)) {
           const normalized = normalizeUrl(absoluteUrl);
-          if (normalized && !visited.has(normalized) && !toVisit.includes(absoluteUrl)) {
-            toVisit.push(absoluteUrl);
+          if (normalized && !visited.has(normalized) && !crawling.has(normalized)) {
+            if (!toVisit.includes(absoluteUrl)) {
+              toVisit.push(absoluteUrl);
+              newInternalLinks.push(absoluteUrl);
+            }
           }
         }
       });
@@ -125,31 +129,85 @@ async function crawlWebsite(startUrl, onProgress) {
         });
       });
 
-      pages.push({
+      const pageData = {
         url: normalizedUrl,
         title: $('title').text() || 'Untitled',
         links: [...links, ...images],
         linksCount: links.length,
         imagesCount: images.length
-      });
+      };
+
+      pages.push(pageData);
+      crawling.delete(normalizedUrl);
+
+      // Callback for pipeline processing
+      if (onPageCrawled) {
+        onPageCrawled(pageData);
+      }
+
+      return pageData;
 
     } catch (error) {
-      // Page failed to load, we'll check it properly in the checker
-      pages.push({
+      // Page failed to load
+      const pageData = {
         url: normalizedUrl,
         title: 'Error loading page',
         links: [],
         linksCount: 0,
         imagesCount: 0,
         error: error.message
+      };
+
+      pages.push(pageData);
+      crawling.delete(normalizedUrl);
+
+      if (onPageCrawled) {
+        onPageCrawled(pageData);
+      }
+
+      return pageData;
+    }
+  }
+
+  // Main crawling loop with parallel processing
+  while (toVisit.length > 0 || crawling.size > 0) {
+    // Update progress
+    if (onProgress) {
+      onProgress({
+        pagesFound: visited.size + toVisit.length,
+        pagesCrawled: pages.length
       });
     }
 
-    // Limit to prevent infinite crawling (safety measure)
-    if (visited.size >= 500) {
-      console.log('Reached page limit (500), stopping crawl');
+    // Check if we hit the limit
+    if (visited.size >= MAX_PAGES) {
+      console.log(`Reached page limit (${MAX_PAGES}), stopping crawl`);
       break;
     }
+
+    // Get next batch to crawl
+    const batchSize = Math.min(CRAWL_CONCURRENCY - crawling.size, toVisit.length);
+    if (batchSize <= 0) {
+      // Wait a bit for current crawls to complete
+      await new Promise(resolve => setTimeout(resolve, 100));
+      continue;
+    }
+
+    const batch = toVisit.splice(0, batchSize);
+
+    // Start crawling all pages in batch (don't wait)
+    const crawlPromises = batch.map(url => crawlPage(url));
+
+    // Wait for at least one to complete before continuing
+    await Promise.race([
+      Promise.all(crawlPromises),
+      new Promise(resolve => setTimeout(resolve, 100))
+    ]);
+  }
+
+  // Wait for any remaining crawls to complete
+  while (crawling.size > 0) {
+    await new Promise(resolve => setTimeout(resolve, 100));
   }
 
   // Update final progress
@@ -160,7 +218,9 @@ async function crawlWebsite(startUrl, onProgress) {
     });
   }
 
-  return pages;
+  console.log(`✅ Crawled ${pages.length} pages, found ${visited.size} unique URLs`);
+
+  return { pages, crawledUrls: visited };
 }
 
 module.exports = { crawlWebsite };

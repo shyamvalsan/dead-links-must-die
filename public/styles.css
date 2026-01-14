@@ -186,6 +186,91 @@ header h1 {
   font-size: 0.875rem;
 }
 
+/* Live Broken Links Section */
+.live-broken-links {
+  margin-top: 2rem;
+  padding-top: 2rem;
+  border-top: 2px solid var(--border-color);
+}
+
+.live-broken-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+  color: var(--error-color);
+}
+
+.live-broken-container {
+  max-height: 400px;
+  overflow-y: auto;
+  padding-right: 0.5rem;
+}
+
+.live-broken-container::-webkit-scrollbar {
+  width: 6px;
+}
+
+.live-broken-container::-webkit-scrollbar-track {
+  background: var(--bg-color);
+  border-radius: 3px;
+}
+
+.live-broken-container::-webkit-scrollbar-thumb {
+  background: var(--text-secondary);
+  border-radius: 3px;
+}
+
+.live-broken-item {
+  background: var(--bg-color);
+  padding: 1rem;
+  border-radius: 8px;
+  margin-bottom: 0.75rem;
+  border-left: 4px solid var(--error-color);
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.live-broken-url {
+  font-weight: 600;
+  color: var(--text-primary);
+  word-break: break-all;
+  display: block;
+  margin-bottom: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.live-broken-status {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: var(--error-color);
+  color: white;
+  margin-bottom: 0.5rem;
+}
+
+.live-broken-pages {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-top: 0.5rem;
+}
+
+.live-broken-page {
+  color: var(--primary-color);
+  word-break: break-all;
+}
+
 /* Results Section */
 .summary {
   background: var(--bg-color);
