@@ -39,7 +39,13 @@ npm install
 npm start
 ```
 
-That's it. The app will start running on `http://localhost:3000`.
+That's it. The app will start running on `http://localhost:3000` (or the next available port if 3000 is in use).
+
+**Note**: If port 3000 is already taken, the app will automatically try ports 3001-3010. You can also manually specify a port:
+
+```bash
+PORT=8080 npm start
+```
 
 ## Usage
 
