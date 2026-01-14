@@ -1,0 +1,25 @@
+{
+  "name": "dead-links-must-die",
+  "version": "1.0.0",
+  "description": "A simple, powerful tool to find and eliminate dead links and broken images on any website",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": [
+    "link-checker",
+    "dead-links",
+    "broken-links",
+    "web-crawler",
+    "seo",
+    "website-validator"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "cheerio": "^1.0.0-rc.12",
+    "axios": "^1.6.0"
+  }
+}

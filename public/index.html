@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dead Links Must Die 💀</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>💀 Dead Links Must Die</h1>
+      <p class="subtitle">Find and eliminate broken links and images on any website</p>
+    </header>
+
+    <main>
+      <!-- Input Section -->
+      <div id="input-section" class="card">
+        <h2>Enter Website URL</h2>
+        <form id="scan-form">
+          <input
+            type="url"
+            id="url-input"
+            placeholder="https://example.com"
+            required
+            autofocus
+          >
+          <button type="submit" id="scan-button">
+            <span class="button-text">Start Scan</span>
+          </button>
+        </form>
+        <p class="help-text">Enter the URL of any website to check for dead links and broken images</p>
+      </div>
+
+      <!-- Progress Section -->
+      <div id="progress-section" class="card hidden">
+        <h2>Scanning in Progress</h2>
+
+        <div class="progress-stage">
+          <div class="stage-indicator">
+            <span class="stage-icon">🔍</span>
+            <span id="stage-text">Initializing...</span>
+          </div>
+        </div>
+
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-label">Pages Found</div>
+            <div class="stat-value" id="pages-found">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Pages Crawled</div>
+            <div class="stat-value" id="pages-crawled">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Links Checked</div>
+            <div class="stat-value" id="links-checked">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Broken Links</div>
+            <div class="stat-value" id="broken-count">0</div>
+          </div>
+        </div>
+
+        <div class="progress-bar-container">
+          <div class="progress-bar" id="progress-bar"></div>
+        </div>
+
+        <div class="eta-container">
+          <span id="eta-text">Calculating...</span>
+        </div>
+      </div>
+
+      <!-- Results Section -->
+      <div id="results-section" class="card hidden">
+        <h2>Scan Complete</h2>
+
+        <div class="summary">
+          <div class="summary-stat">
+            <span class="summary-label">Total Pages:</span>
+            <span class="summary-value" id="result-pages">0</span>
+          </div>
+          <div class="summary-stat">
+            <span class="summary-label">Total Links:</span>
+            <span class="summary-value" id="result-links">0</span>
+          </div>
+          <div class="summary-stat success">
+            <span class="summary-label">Working Links:</span>
+            <span class="summary-value" id="result-working">0</span>
+          </div>
+          <div class="summary-stat warning">
+            <span class="summary-label">Redirects:</span>
+            <span class="summary-value" id="result-redirects">0</span>
+          </div>
+          <div class="summary-stat error">
+            <span class="summary-label">Broken Links:</span>
+            <span class="summary-value" id="result-broken">0</span>
+          </div>
+        </div>
+
+        <div id="broken-links-container"></div>
+        <div id="redirects-container"></div>
+        <div id="pages-container"></div>
+
+        <button id="new-scan-button" class="secondary-button">Scan Another Website</button>
+      </div>
+
+      <!-- Error Section -->
+      <div id="error-section" class="card error-card hidden">
+        <h2>⚠️ Scan Error</h2>
+        <p id="error-message"></p>
+        <button id="retry-button" class="secondary-button">Try Again</button>
+      </div>
+    </main>
+
+    <footer>
+      <p>Built with ❤️ for a better web | <a href="https://github.com" target="_blank">Open Source</a></p>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
