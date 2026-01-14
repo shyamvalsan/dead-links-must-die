@@ -147,7 +147,28 @@ async function performScan(scanId, url) {
   }
 }
 
-app.listen(PORT, () => {
-  console.log(`🔗 Dead Links Must Die!`);
-  console.log(`Server running on http://localhost:${PORT}`);
-});
+function startServer(port) {
+  const server = app.listen(port, () => {
+    console.log(`🔗 Dead Links Must Die!`);
+    console.log(`Server running on http://localhost:${port}`);
+  });
+
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.log(`❌ Port ${port} is already in use`);
+      const nextPort = port + 1;
+      if (nextPort <= port + 10) {
+        console.log(`🔄 Trying port ${nextPort}...`);
+        startServer(nextPort);
+      } else {
+        console.error('❌ Could not find an available port. Please specify a PORT environment variable.');
+        process.exit(1);
+      }
+    } else {
+      console.error('❌ Server error:', err);
+      process.exit(1);
+    }
+  });
+}
+
+startServer(PORT);
