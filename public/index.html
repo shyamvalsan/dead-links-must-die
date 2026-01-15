@@ -78,6 +78,53 @@
           </div>
         </div>
 
+        <!-- Live Error Breakdown Dashboard -->
+        <div id="error-dashboard-section" class="error-dashboard hidden">
+          <h3 class="dashboard-title">📊 Error Breakdown (Live)</h3>
+          <div class="error-grid">
+            <div class="error-stat">
+              <div class="error-icon">🚫</div>
+              <div class="error-count" id="error-404">0</div>
+              <div class="error-label">404 Not Found</div>
+            </div>
+            <div class="error-stat">
+              <div class="error-icon">⏱️</div>
+              <div class="error-count" id="error-timeout">0</div>
+              <div class="error-label">Timeout</div>
+            </div>
+            <div class="error-stat">
+              <div class="error-icon">⚡</div>
+              <div class="error-count" id="error-connaborted">0</div>
+              <div class="error-label">Connection Aborted</div>
+            </div>
+            <div class="error-stat">
+              <div class="error-icon">🌐</div>
+              <div class="error-count" id="error-dns">0</div>
+              <div class="error-label">DNS Failed</div>
+            </div>
+            <div class="error-stat">
+              <div class="error-icon">🔒</div>
+              <div class="error-count" id="error-403">0</div>
+              <div class="error-label">Forbidden</div>
+            </div>
+            <div class="error-stat">
+              <div class="error-icon">💥</div>
+              <div class="error-count" id="error-500">0</div>
+              <div class="error-label">Server Error</div>
+            </div>
+            <div class="error-stat">
+              <div class="error-icon">🔐</div>
+              <div class="error-count" id="error-401">0</div>
+              <div class="error-label">Unauthorized</div>
+            </div>
+            <div class="error-stat">
+              <div class="error-icon">❓</div>
+              <div class="error-count" id="error-other">0</div>
+              <div class="error-label">Other</div>
+            </div>
+          </div>
+        </div>
+
         <!-- Live Broken Links Section -->
         <div id="live-broken-links-section" class="live-broken-links hidden">
           <h3 class="live-broken-title">🔴 Broken Links Found</h3>
