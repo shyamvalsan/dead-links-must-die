@@ -68,14 +68,49 @@
 
         <div class="eta-container">
           <span id="eta-text">Calculating...</span>
+          <div class="elapsed-time">
+            ⏱️ Elapsed: <span id="elapsed-time">0s</span>
+          </div>
+        </div>
+
+        <!-- Live Broken Links Section -->
+        <div id="live-broken-links-section" class="live-broken-links hidden">
+          <h3 class="live-broken-title">🔴 Broken Links Found</h3>
+          <div id="live-broken-links-container" class="live-broken-container">
+            <!-- Broken links appear here in real-time -->
+          </div>
         </div>
       </div>
 
       <!-- Results Section -->
       <div id="results-section" class="card hidden">
-        <h2>Scan Complete</h2>
+        <h2>✅ Scan Complete!</h2>
+
+        <!-- Dashboard -->
+        <div class="dashboard">
+          <div class="dashboard-stat">
+            <div class="dash-value" id="dash-pages">0</div>
+            <div class="dash-label">Pages Scanned</div>
+          </div>
+          <div class="dashboard-stat">
+            <div class="dash-value" id="dash-links">0</div>
+            <div class="dash-label">Links Checked</div>
+          </div>
+          <div class="dashboard-stat success">
+            <div class="dash-value" id="dash-working">0</div>
+            <div class="dash-label">✓ Working</div>
+          </div>
+          <div class="dashboard-stat error">
+            <div class="dash-value" id="dash-broken">0</div>
+            <div class="dash-label">✗ Broken</div>
+          </div>
+        </div>
 
         <div class="summary">
+          <div class="summary-stat">
+            <span class="summary-label">⏱️ Scan Duration:</span>
+            <span class="summary-value" id="result-elapsed">0s</span>
+          </div>
           <div class="summary-stat">
             <span class="summary-label">Total Pages:</span>
             <span class="summary-value" id="result-pages">0</span>
@@ -92,13 +127,19 @@
             <span class="summary-label">Redirects:</span>
             <span class="summary-value" id="result-redirects">0</span>
           </div>
+          <div class="summary-stat warning">
+            <span class="summary-label">Warnings (403/401):</span>
+            <span class="summary-value" id="result-warnings">0</span>
+          </div>
           <div class="summary-stat error">
             <span class="summary-label">Broken Links:</span>
             <span class="summary-value" id="result-broken">0</span>
           </div>
         </div>
 
+        <h3 class="section-title">📋 Detailed Breakdown</h3>
         <div id="broken-links-container"></div>
+        <div id="warnings-container"></div>
         <div id="redirects-container"></div>
         <div id="pages-container"></div>
 

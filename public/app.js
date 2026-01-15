@@ -15,14 +15,26 @@ const linksCheckedEl = document.getElementById('links-checked');
 const brokenCountEl = document.getElementById('broken-count');
 const progressBar = document.getElementById('progress-bar');
 const etaText = document.getElementById('eta-text');
+const elapsedTimeEl = document.getElementById('elapsed-time');
+const liveBrokenLinksSection = document.getElementById('live-broken-links-section');
+const liveBrokenLinksContainer = document.getElementById('live-broken-links-container');
+
+// Dashboard elements
+const dashPages = document.getElementById('dash-pages');
+const dashLinks = document.getElementById('dash-links');
+const dashWorking = document.getElementById('dash-working');
+const dashBroken = document.getElementById('dash-broken');
 
 // Results elements
+const resultElapsed = document.getElementById('result-elapsed');
 const resultPages = document.getElementById('result-pages');
 const resultLinks = document.getElementById('result-links');
 const resultWorking = document.getElementById('result-working');
 const resultRedirects = document.getElementById('result-redirects');
+const resultWarnings = document.getElementById('result-warnings');
 const resultBroken = document.getElementById('result-broken');
 const brokenLinksContainer = document.getElementById('broken-links-container');
+const warningsContainer = document.getElementById('warnings-container');
 const redirectsContainer = document.getElementById('redirects-container');
 const pagesContainer = document.getElementById('pages-container');
 const newScanButton = document.getElementById('new-scan-button');
@@ -33,6 +45,7 @@ const retryButton = document.getElementById('retry-button');
 
 // State
 let currentEventSource = null;
+let displayedBrokenLinks = 0; // Track how many broken links we've already displayed
 
 // Event Listeners
 scanForm.addEventListener('submit', handleScanSubmit);
@@ -106,7 +119,9 @@ function updateProgress(data) {
   // Update stage
   const stageMessages = {
     initializing: '🔍 Initializing scan...',
+    scanning: '🕷️ Crawling website...',
     crawling: '🕷️ Crawling website...',
+    checking_links: '🔗 Checking links...',
     checking: '🔗 Checking links...',
     completed: '✅ Scan complete!'
   };
@@ -138,10 +153,55 @@ function updateProgress(data) {
       const minutes = Math.ceil(seconds / 60);
       etaText.textContent = `Estimated time remaining: ${minutes} minute${minutes > 1 ? 's' : ''}`;
     }
-  } else if (progress.stage === 'checking') {
+  } else if (progress.stage === 'checking' || progress.stage === 'checking_links') {
     etaText.textContent = 'Calculating time remaining...';
   } else {
     etaText.textContent = 'Scanning...';
+  }
+
+  // Update elapsed time
+  if (progress.elapsedTime) {
+    const seconds = Math.floor(progress.elapsedTime / 1000);
+    if (seconds < 60) {
+      elapsedTimeEl.textContent = `${seconds}s`;
+    } else {
+      const minutes = Math.floor(seconds / 60);
+      const remainingSecs = seconds % 60;
+      elapsedTimeEl.textContent = `${minutes}m ${remainingSecs}s`;
+    }
+  }
+
+  // Update live broken links (REAL-TIME!)
+  if (data.liveBrokenLinks && data.liveBrokenLinks.length > 0) {
+    // Show section if hidden
+    if (liveBrokenLinksSection.classList.contains('hidden')) {
+      liveBrokenLinksSection.classList.remove('hidden');
+    }
+
+    // Display any new broken links
+    const newBrokenLinks = data.liveBrokenLinks.slice(displayedBrokenLinks);
+
+    newBrokenLinks.forEach(link => {
+      const linkElement = document.createElement('div');
+      linkElement.className = 'live-broken-item';
+
+      const occurrencesText = link.occurrences.length > 3
+        ? `Found on ${link.occurrences.length} pages`
+        : link.occurrences.map(occ => occ.page).join(', ');
+
+      linkElement.innerHTML = `
+        <span class="live-broken-url">${escapeHtml(link.url)}</span>
+        <span class="live-broken-status">${escapeHtml(link.status)} - ${escapeHtml(link.message)}</span>
+        <div class="live-broken-pages">
+          ${escapeHtml(occurrencesText)}
+        </div>
+      `;
+
+      // Add to top of container (most recent first)
+      liveBrokenLinksContainer.insertBefore(linkElement, liveBrokenLinksContainer.firstChild);
+    });
+
+    displayedBrokenLinks = data.liveBrokenLinks.length;
   }
 }
 
@@ -149,13 +209,32 @@ function showResults(data) {
   progressSection.classList.add('hidden');
   resultsSection.classList.remove('hidden');
 
-  const { results } = data;
+  const { results, progress } = data;
+
+  // Calculate final elapsed time
+  const elapsedSeconds = Math.floor((progress.elapsedTime || 0) / 1000);
+  let elapsedText;
+  if (elapsedSeconds < 60) {
+    elapsedText = `${elapsedSeconds}s`;
+  } else {
+    const minutes = Math.floor(elapsedSeconds / 60);
+    const seconds = elapsedSeconds % 60;
+    elapsedText = `${minutes}m ${seconds}s`;
+  }
+
+  // Update dashboard
+  dashPages.textContent = results.summary.totalPages;
+  dashLinks.textContent = results.summary.totalLinks;
+  dashWorking.textContent = results.summary.workingLinks;
+  dashBroken.textContent = results.summary.brokenLinks;
 
   // Update summary
+  resultElapsed.textContent = elapsedText;
   resultPages.textContent = results.summary.totalPages;
   resultLinks.textContent = results.summary.totalLinks;
   resultWorking.textContent = results.summary.workingLinks;
   resultRedirects.textContent = results.summary.redirects;
+  resultWarnings.textContent = results.summary.warnings || 0;
   resultBroken.textContent = results.summary.brokenLinks;
 
   // Show broken links
@@ -184,11 +263,38 @@ function showResults(data) {
     brokenLinksContainer.innerHTML = brokenLinksHtml;
   }
 
+  // Show warnings (403/401)
+  if (results.warnings && results.warnings.length > 0) {
+    const warningsHtml = `
+      <div class="results-group">
+        <h3>⚠️ Warnings - Access Denied (${results.warnings.length})</h3>
+        <p class="group-description">These links returned 403/401 status codes. They may be accessible to users but blocked for crawlers.</p>
+        ${results.warnings.map(link => `
+          <div class="link-item warning">
+            <span class="link-url">${escapeHtml(link.url)}</span>
+            <span class="link-status">${escapeHtml(link.status)} - ${escapeHtml(link.message)}</span>
+            <div class="occurrences">
+              <div class="occurrences-title">Found on ${link.occurrences.length} page${link.occurrences.length > 1 ? 's' : ''}:</div>
+              ${link.occurrences.slice(0, 3).map(occ => `
+                <div class="occurrence">
+                  • <span class="occurrence-page">${escapeHtml(occ.page)}</span>
+                </div>
+              `).join('')}
+              ${link.occurrences.length > 3 ? `<div class="occurrence">... and ${link.occurrences.length - 3} more</div>` : ''}
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+    warningsContainer.innerHTML = warningsHtml;
+  }
+
   // Show redirects
   if (results.redirects.length > 0) {
     const redirectsHtml = `
       <div class="results-group">
         <h3>🔄 Redirects (${results.redirects.length})</h3>
+        <p class="group-description">These URLs redirect to different locations. Consider updating links to point directly to the final destination. (Trivial redirects like www vs non-www are filtered out.)</p>
         ${results.redirects.map(link => `
           <div class="link-item redirect">
             <span class="link-url">${escapeHtml(link.url)}</span>
@@ -214,7 +320,8 @@ function showResults(data) {
   if (pagesWithIssues.length > 0) {
     const pagesHtml = `
       <div class="results-group">
-        <h3>📄 Pages with Issues (${pagesWithIssues.length})</h3>
+        <h3>📄 Pages with Broken Links (${pagesWithIssues.length})</h3>
+        <p class="group-description">These pages contain one or more broken links. Fix the broken links listed above to resolve issues on these pages.</p>
         ${pagesWithIssues.map(page => `
           <div class="page-item">
             <div class="page-title">${escapeHtml(page.title)}</div>
@@ -252,8 +359,14 @@ function resetToInput() {
 
   // Clear results
   brokenLinksContainer.innerHTML = '';
+  warningsContainer.innerHTML = '';
   redirectsContainer.innerHTML = '';
   pagesContainer.innerHTML = '';
+
+  // Clear live broken links
+  liveBrokenLinksContainer.innerHTML = '';
+  liveBrokenLinksSection.classList.add('hidden');
+  displayedBrokenLinks = 0;
 
   // Close SSE connection if active
   if (currentEventSource) {
