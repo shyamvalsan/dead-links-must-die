@@ -125,10 +125,11 @@ async function performScan(scanId, url) {
     let linksChecked = 0;
     let totalLinksFound = 0;
     const checkedUrls = new Set();
+    const crawledUrls = new Set(); // Create this BEFORE crawlWebsite to avoid reference error
     const allBrokenLinks = [];
 
     // TRUE PIPELINE: Check links from each page as soon as it's crawled!
-    const { pages, crawledUrls } = await crawlWebsite(
+    const { pages } = await crawlWebsite(
       url,
       // Progress callback
       (progress) => {
@@ -137,6 +138,9 @@ async function performScan(scanId, url) {
       },
       // Page crawled callback - THE MAGIC HAPPENS HERE!
       async (page) => {
+        // Track this page as crawled
+        crawledUrls.add(page.url);
+
         // Immediately check links from this page (don't wait for all crawling!)
         const linksToCheck = page.links.filter(link => {
           if (checkedUrls.has(link.url)) return false;
