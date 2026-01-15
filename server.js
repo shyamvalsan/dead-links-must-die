@@ -182,10 +182,30 @@ async function performScan(scanId, url) {
 
     console.log(`✅ Crawling complete: ${pages.length} pages`);
     console.log(`🔍 Waiting for remaining link checks to complete...`);
+    console.log(`   Expected: ${checkedUrls.size} checks, Completed: ${linksChecked}`);
 
-    // Wait for all background checks to finish
+    // Wait for all background checks to finish with timeout protection
+    let lastProgress = linksChecked;
+    let noProgressCount = 0;
+    const MAX_NO_PROGRESS_CYCLES = 30; // 30 seconds without progress = give up
+
     while (linksChecked < checkedUrls.size) {
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Check if we made progress
+      if (linksChecked > lastProgress) {
+        lastProgress = linksChecked;
+        noProgressCount = 0;
+        console.log(`   Progress: ${linksChecked}/${checkedUrls.size} checks complete`);
+      } else {
+        noProgressCount++;
+
+        // If no progress for 30 seconds, give up waiting
+        if (noProgressCount >= MAX_NO_PROGRESS_CYCLES) {
+          console.log(`⚠️  No progress for ${MAX_NO_PROGRESS_CYCLES}s, completing scan with ${linksChecked}/${checkedUrls.size} checks`);
+          break;
+        }
+      }
     }
 
     // Compile final results

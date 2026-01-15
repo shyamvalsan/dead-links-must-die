@@ -11,6 +11,7 @@ const errorSection = document.getElementById('error-section');
 const stageText = document.getElementById('stage-text');
 const pagesFoundEl = document.getElementById('pages-found');
 const pagesCrawledEl = document.getElementById('pages-crawled');
+const totalLinksEl = document.getElementById('total-links');
 const linksCheckedEl = document.getElementById('links-checked');
 const brokenCountEl = document.getElementById('broken-count');
 const progressBar = document.getElementById('progress-bar');
@@ -131,6 +132,7 @@ function updateProgress(data) {
   // Update stats
   pagesFoundEl.textContent = progress.pagesFound || 0;
   pagesCrawledEl.textContent = progress.pagesCrawled || 0;
+  totalLinksEl.textContent = progress.totalLinks || 0;
   linksCheckedEl.textContent = progress.linksChecked || 0;
   brokenCountEl.textContent = progress.brokenLinks || 0;
 
