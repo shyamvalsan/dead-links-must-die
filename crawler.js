@@ -33,10 +33,17 @@ async function crawlWebsite(startUrl, onProgress, onPageCrawled) {
   }
 
   // Check if URL is internal (same domain)
+  let debugCheckCount = 0;
   function isInternalUrl(url) {
     try {
       const parsed = new URL(url);
-      return parsed.hostname === baseUrl.hostname;
+      const isInternal = parsed.hostname === baseUrl.hostname;
+      // Debug: log first few checks on first page
+      if (pages.length === 0 && debugCheckCount < 5) {
+        console.log(`    🔍 Checking ${parsed.hostname} vs ${baseUrl.hostname}: ${isInternal ? 'internal' : 'external'}`);
+        debugCheckCount++;
+      }
+      return isInternal;
     } catch (e) {
       return false;
     }
@@ -99,6 +106,7 @@ async function crawlWebsite(startUrl, onProgress, onPageCrawled) {
       const newInternalLinks = [];
 
       // Extract all links
+      let internalLinksFound = 0;
       $('a[href]').each((i, elem) => {
         const href = $(elem).attr('href');
         if (!href) return;
@@ -120,10 +128,15 @@ async function crawlWebsite(startUrl, onProgress, onPageCrawled) {
             if (!toVisit.includes(absoluteUrl)) {
               toVisit.push(absoluteUrl);
               newInternalLinks.push(absoluteUrl);
+              internalLinksFound++;
             }
           }
         }
       });
+
+      if (internalLinksFound > 0) {
+        console.log(`  📎 Found ${internalLinksFound} new internal links to crawl`);
+      }
 
       // Extract all images
       $('img[src]').each((i, elem) => {
