@@ -3,8 +3,8 @@ const cheerio = require('cheerio');
 const { URL } = require('url');
 
 // Configuration
-const CRAWL_CONCURRENCY = 50; // Crawl 50 pages simultaneously (2.5x increase!)
-const CRAWL_TIMEOUT = 8000; // 8 seconds per page (slightly faster)
+const CRAWL_CONCURRENCY = 20; // Crawl 20 pages simultaneously (reduced to avoid rate limits)
+const CRAWL_TIMEOUT = 12000; // 12 seconds per page (increased for reliability)
 const MAX_PAGES = 10000; // Much higher limit (10k pages)
 
 /**
@@ -68,7 +68,7 @@ async function crawlWebsite(startUrl, onProgress, onPageCrawled) {
         timeout: CRAWL_TIMEOUT,
         maxRedirects: 5,
         headers: {
-          'User-Agent': 'DeadLinksMustDie/2.0 (Fast Scanner)'
+          'User-Agent': 'Mozilla/5.0 (compatible; DeadLinkChecker/4.0; +https://github.com/deadlinks)'
         }
       });
 

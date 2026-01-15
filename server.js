@@ -211,64 +211,108 @@ async function performScan(scanId, url) {
   }
 }
 
-// Helper to check a single URL in background (for pipeline)
+// Helper to check a single URL in background (for pipeline) with retry + fallback
 async function checkUrlInBackground(link, page, scan, crawledUrls) {
-  const { checkLinks } = require('./checker');
   const axios = require('axios');
   const http = require('http');
   const https = require('https');
 
-  try {
-    const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 500, timeout: 5000 });
-    const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 500, timeout: 5000 });
+  const TIMEOUT = 10000; // 10 seconds
+  const MAX_RETRIES = 2;
 
-    const response = await axios.head(link.url, {
-      timeout: 5000,
-      maxRedirects: 5,
-      validateStatus: null,
-      httpAgent,
-      httpsAgent,
-      headers: { 'User-Agent': 'DeadLinksMustDie/3.0 (Turbo Scanner)' }
-    });
+  const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 200, timeout: TIMEOUT });
+  const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 200, timeout: TIMEOUT });
 
-    const ok = response.status >= 200 && response.status < 400;
+  // Try with retry and HEAD->GET fallback
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      // Try HEAD first
+      const response = await axios.head(link.url, {
+        timeout: TIMEOUT,
+        maxRedirects: 5,
+        validateStatus: null,
+        httpAgent,
+        httpsAgent,
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; DeadLinkChecker/4.0; +https://github.com/deadlinks)' }
+      });
 
-    if (!ok) {
-      // Skip 403/401 warnings (not truly broken, just access denied)
-      if (response.status !== 403 && response.status !== 401) {
-        // Found broken link - stream it immediately!
-        const brokenLinkData = {
+      const ok = response.status >= 200 && response.status < 400;
+
+      // If HEAD returned 404/405, try GET as fallback
+      if (!ok && (response.status === 404 || response.status === 405)) {
+        try {
+          const getResponse = await axios.get(link.url, {
+            timeout: TIMEOUT,
+            maxRedirects: 5,
+            validateStatus: null,
+            httpAgent,
+            httpsAgent,
+            maxContentLength: 1024 * 1024, // 1MB max
+            responseType: 'stream',
+            headers: { 'User-Agent': 'Mozilla/5.0 (compatible; DeadLinkChecker/4.0; +https://github.com/deadlinks)' }
+          });
+
+          // Destroy stream immediately
+          if (getResponse.data && getResponse.data.destroy) {
+            getResponse.data.destroy();
+          }
+
+          const getOk = getResponse.status >= 200 && getResponse.status < 400;
+
+          if (getOk) {
+            return { ok: true, status: getResponse.status };
+          }
+
+          // GET also failed, use GET result
+          if (getResponse.status !== 403 && getResponse.status !== 401) {
+            scan.liveBrokenLinks.push({
+              url: link.url,
+              status: getResponse.status,
+              message: `HTTP ${getResponse.status}`,
+              occurrences: [{ page: page.url, text: link.text, type: link.type }]
+            });
+          }
+          return { ok: false, status: getResponse.status };
+
+        } catch (getError) {
+          // GET failed too, continue to retry logic below
+        }
+      }
+
+      // Process HEAD result
+      if (!ok && response.status !== 403 && response.status !== 401) {
+        scan.liveBrokenLinks.push({
           url: link.url,
           status: response.status,
-          message: response.status ? `HTTP ${response.status}` : 'Request failed',
-          occurrences: [{
-            page: page.url,
-            text: link.text,
-            type: link.type
-          }]
-        };
-
-        scan.liveBrokenLinks.push(brokenLinkData);
+          message: `HTTP ${response.status}`,
+          occurrences: [{ page: page.url, text: link.text, type: link.type }]
+        });
       }
+
+      return { ok, status: response.status };
+
+    } catch (error) {
+      // Network error or timeout
+      if (attempt < MAX_RETRIES) {
+        // Wait before retry (exponential backoff)
+        const delay = Math.pow(2, attempt) * 1000; // 1s, 2s
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+
+      // Final attempt failed
+      scan.liveBrokenLinks.push({
+        url: link.url,
+        status: 0,
+        message: error.code || error.message || 'Request failed',
+        occurrences: [{ page: page.url, text: link.text, type: link.type }]
+      });
+      return { ok: false, status: 0 };
     }
-
-    return { ok, status: response.status };
-  } catch (error) {
-    // Broken link
-    const brokenLinkData = {
-      url: link.url,
-      status: 0,
-      message: error.code || error.message || 'Request failed',
-      occurrences: [{
-        page: page.url,
-        text: link.text,
-        type: link.type
-      }]
-    };
-
-    scan.liveBrokenLinks.push(brokenLinkData);
-    return { ok: false, status: 0 };
   }
+
+  // Should never reach here
+  return { ok: false, status: 0 };
 }
 
 function startServer(port) {

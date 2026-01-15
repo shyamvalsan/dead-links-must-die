@@ -3,21 +3,22 @@ const http = require('http');
 const https = require('https');
 
 // Configuration
-const CONCURRENCY = 500; // Check 500 links simultaneously (5x increase!)
-const TIMEOUT = 5000; // 5 seconds (more reasonable to avoid false positives)
+const CONCURRENCY = 200; // Reduced from 500 to avoid rate limiting
+const TIMEOUT = 10000; // 10 seconds (increased to reduce false timeouts)
+const MAX_RETRIES = 2; // Retry failed requests twice
 
 // Connection pooling for massive performance boost
 const httpAgent = new http.Agent({
   keepAlive: true,
-  maxSockets: 500,
-  maxFreeSockets: 100,
+  maxSockets: 200,
+  maxFreeSockets: 50,
   timeout: TIMEOUT
 });
 
 const httpsAgent = new https.Agent({
   keepAlive: true,
-  maxSockets: 500,
-  maxFreeSockets: 100,
+  maxSockets: 200,
+  maxFreeSockets: 50,
   timeout: TIMEOUT
 });
 
@@ -201,20 +202,96 @@ function isTrivialRedirect(originalUrl, finalUrl) {
 }
 
 /**
- * Check if a single URL is accessible (HEAD only, fast!)
+ * Check if a single URL is accessible with retry logic and HEAD->GET fallback
  */
 async function checkUrl(url) {
+  // Try with retries and fallback strategies
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      // First try HEAD request (fast)
+      const headResult = await checkUrlWithMethod(url, 'HEAD', attempt);
+
+      // If HEAD succeeded, return result
+      if (headResult.ok || headResult.status >= 400) {
+        return headResult;
+      }
+
+      // If HEAD returned 404/405 (method not allowed), try GET as fallback
+      if (headResult.status === 404 || headResult.status === 405 || headResult.status === 0) {
+        console.log(`  ↻ HEAD failed for ${url}, trying GET...`);
+        const getResult = await checkUrlWithMethod(url, 'GET', 0); // No retries for GET
+        if (getResult.ok) {
+          return getResult;
+        }
+      }
+
+      // Return HEAD result if not retrying
+      if (attempt === MAX_RETRIES) {
+        return headResult;
+      }
+
+      // Wait before retry (exponential backoff)
+      if (headResult.status === 0) {
+        const delay = Math.pow(2, attempt) * 1000; // 1s, 2s, 4s
+        await new Promise(resolve => setTimeout(resolve, delay));
+      } else {
+        return headResult; // Don't retry non-network errors
+      }
+
+    } catch (error) {
+      // Hard timeout or unexpected error
+      if (attempt === MAX_RETRIES) {
+        return {
+          ok: false,
+          status: 0,
+          message: error.code || error.message || 'Request failed'
+        };
+      }
+
+      // Wait before retry
+      const delay = Math.pow(2, attempt) * 1000;
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+
+  // Fallback (should never reach here)
+  return {
+    ok: false,
+    status: 0,
+    message: 'Request failed after retries'
+  };
+}
+
+/**
+ * Check URL with specific HTTP method
+ */
+async function checkUrlWithMethod(url, method, attempt) {
   try {
-    const response = await axios.head(url, {
+    const options = {
       timeout: TIMEOUT,
       maxRedirects: 5,
       validateStatus: null, // Don't throw on any status
       httpAgent: httpAgent,
       httpsAgent: httpsAgent,
       headers: {
-        'User-Agent': 'DeadLinksMustDie/3.0 (Turbo Scanner)'
+        'User-Agent': 'Mozilla/5.0 (compatible; DeadLinkChecker/4.0; +https://github.com/deadlinks)'
       }
-    });
+    };
+
+    // For GET, limit response size to avoid downloading huge files
+    if (method === 'GET') {
+      options.maxContentLength = 1024 * 1024; // 1MB max
+      options.responseType = 'stream'; // Stream to avoid loading entire file
+    }
+
+    const response = method === 'HEAD'
+      ? await axios.head(url, options)
+      : await axios.get(url, options);
+
+    // If GET with stream, immediately destroy to stop download
+    if (method === 'GET' && response.data && response.data.destroy) {
+      response.data.destroy();
+    }
 
     const redirected = response.request.res?.responseUrl && response.request.res.responseUrl !== url;
 
@@ -233,7 +310,7 @@ async function checkUrl(url) {
       };
     }
   } catch (error) {
-    // No GET fallback - fail fast!
+    // Network errors, timeouts, etc.
     return {
       ok: false,
       status: 0,
