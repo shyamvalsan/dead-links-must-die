@@ -72,6 +72,18 @@ async function crawlWebsite(startUrl, onProgress, onPageCrawled) {
         }
       });
 
+      // Update baseUrl if we got redirected (important for following internal links!)
+      if (response.request.res && response.request.res.responseUrl) {
+        const finalUrl = response.request.res.responseUrl;
+        if (finalUrl !== normalizedUrl) {
+          const newBase = new URL(finalUrl);
+          if (newBase.hostname !== baseUrl.hostname) {
+            console.log(`  🔀 Redirect detected: ${baseUrl.hostname} → ${newBase.hostname}`);
+            baseUrl = newBase;
+          }
+        }
+      }
+
       // Only process HTML pages
       const contentType = response.headers['content-type'] || '';
       if (!contentType.includes('text/html')) {

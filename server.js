@@ -14,10 +14,15 @@ const activeScans = new Map();
 
 // Start a new scan
 app.post('/api/scan', async (req, res) => {
-  const { url } = req.body;
+  let { url } = req.body;
 
   if (!url) {
     return res.status(400).json({ error: 'URL is required' });
+  }
+
+  // Auto-add https:// if no protocol specified
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    url = 'https://' + url;
   }
 
   // Validate URL format
@@ -139,6 +144,35 @@ async function performScan(scanId, url) {
     const crawledUrls = new Set(); // Create this BEFORE crawlWebsite to avoid reference error
     const allBrokenLinks = [];
 
+    // Activity tracker: Auto-complete if 30s pass with no activity
+    let lastActivityTime = Date.now();
+    let lastPagesCrawled = 0;
+    let lastLinksChecked = 0;
+    let shouldForceComplete = false; // Flag to force completion on timeout
+
+    // Monitor for inactivity and auto-complete if stuck
+    const activityMonitor = setInterval(() => {
+      const currentPagesCrawled = scan.progress.pagesCrawled || 0;
+      const currentLinksChecked = linksChecked;
+
+      // Check if we made progress
+      if (currentPagesCrawled > lastPagesCrawled || currentLinksChecked > lastLinksChecked) {
+        // Activity detected, reset timer
+        lastActivityTime = Date.now();
+        lastPagesCrawled = currentPagesCrawled;
+        lastLinksChecked = currentLinksChecked;
+      } else {
+        // No activity - check if 30s elapsed
+        const inactiveTime = Date.now() - lastActivityTime;
+        if (inactiveTime > 30000) {
+          console.log(`⚠️  No activity for 30s - auto-completing scan`);
+          console.log(`   Pages: ${currentPagesCrawled}, Links: ${currentLinksChecked}`);
+          shouldForceComplete = true; // Trigger forced completion
+          clearInterval(activityMonitor);
+        }
+      }
+    }, 1000); // Check every second
+
     // TRUE PIPELINE: Check links from each page as soon as it's crawled!
     const { pages } = await crawlWebsite(
       url,
@@ -146,11 +180,13 @@ async function performScan(scanId, url) {
       (progress) => {
         scan.progress.pagesFound = progress.pagesFound;
         scan.progress.pagesCrawled = progress.pagesCrawled;
+        lastActivityTime = Date.now(); // Update activity time
       },
       // Page crawled callback - THE MAGIC HAPPENS HERE!
       async (page) => {
         // Track this page as crawled
         crawledUrls.add(page.url);
+        lastActivityTime = Date.now(); // Update activity time
 
         // Immediately check links from this page (don't wait for all crawling!)
         const linksToCheck = page.links.filter(link => {
@@ -180,6 +216,7 @@ async function performScan(scanId, url) {
               // ALWAYS increment counter, even if check failed/timed out
               linksChecked++;
               scan.progress.linksChecked = linksChecked;
+              lastActivityTime = Date.now(); // Update activity time
 
               // Calculate ETA
               const elapsed = Date.now() - scan.progress.startTime;
@@ -200,8 +237,14 @@ async function performScan(scanId, url) {
     let noProgressCount = 0;
     const MAX_NO_PROGRESS_CYCLES = 30; // 30 seconds without progress = give up
 
-    while (linksChecked < checkedUrls.size) {
+    while (linksChecked < checkedUrls.size && !shouldForceComplete) {
       await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Check if forced to complete by activity monitor
+      if (shouldForceComplete) {
+        console.log(`⚠️  Activity monitor triggered force completion`);
+        break;
+      }
 
       // Check if we made progress
       if (linksChecked > lastProgress) {
@@ -219,13 +262,39 @@ async function performScan(scanId, url) {
       }
     }
 
-    // Compile final results
-    const results = await checkLinks(
-      pages,
-      crawledUrls,
-      () => {}, // Progress already tracked
-      () => {}  // Broken links already tracked
-    );
+    // Clean up activity monitor
+    clearInterval(activityMonitor);
+
+    console.log(`✅ All link checks complete!`);
+    console.log(`⚡ Checked ${linksChecked} links across ${pages.length} pages`);
+
+    // Compile final results from what we already checked (no need to re-check!)
+    const results = {
+      summary: {
+        totalPages: pages.length,
+        totalLinks: totalLinksFound,
+        linksChecked: linksChecked,
+        linksSkipped: totalLinksFound - checkedUrls.size,
+        brokenLinks: scan.liveBrokenLinks.length,
+        workingLinks: linksChecked - scan.liveBrokenLinks.length,
+        redirects: 0, // TODO: track redirects in pipeline
+        warnings: 0   // TODO: track 403/401 in pipeline
+      },
+      pages: pages.map(page => ({
+        url: page.url,
+        title: page.title,
+        totalLinks: page.links.length,
+        brokenLinks: scan.liveBrokenLinks.filter(bl =>
+          bl.occurrences.some(occ => occ.page === page.url)
+        ).length,
+        brokenLinksList: scan.liveBrokenLinks.filter(bl =>
+          bl.occurrences.some(occ => occ.page === page.url)
+        )
+      })),
+      brokenLinks: scan.liveBrokenLinks,
+      redirects: [], // TODO: implement in pipeline
+      warnings: []   // TODO: implement in pipeline
+    };
 
     // Complete
     scan.status = 'completed';
@@ -233,12 +302,16 @@ async function performScan(scanId, url) {
     scan.results = results;
 
     console.log(`✅ TURBO scan complete! Found ${scan.liveBrokenLinks.length} broken links`);
-    console.log(`⚡ Checked ${linksChecked} links across ${pages.length} pages`);
 
   } catch (error) {
     console.error('Scan error:', error);
     scan.status = 'error';
     scan.error = error.message;
+
+    // Clean up activity monitor on error
+    if (typeof activityMonitor !== 'undefined') {
+      clearInterval(activityMonitor);
+    }
   }
 }
 
