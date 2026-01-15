@@ -139,6 +139,25 @@
         </div>
 
         <h3 class="section-title">📋 Detailed Breakdown</h3>
+
+        <!-- Controls for filtering and exporting -->
+        <div id="results-controls" class="results-controls">
+          <div class="control-row">
+            <input type="text" id="search-box" placeholder="🔍 Search broken links..." class="search-input">
+            <select id="group-by-select" class="filter-select">
+              <option value="none">View: All Broken Links</option>
+              <option value="error-type">Group by Error Type</option>
+              <option value="page">Group by Page</option>
+              <option value="link-type">Group by Type (Link/Image)</option>
+            </select>
+          </div>
+          <div class="control-row">
+            <button id="export-csv-button" class="export-button">📄 Export CSV</button>
+            <button id="export-json-button" class="export-button">📋 Export JSON</button>
+            <span class="results-count" id="results-count">Showing all results</span>
+          </div>
+        </div>
+
         <div id="broken-links-container"></div>
         <div id="warnings-container"></div>
         <div id="redirects-container"></div>

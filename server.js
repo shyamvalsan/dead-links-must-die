@@ -154,20 +154,28 @@ async function performScan(scanId, url) {
         // Check this page's links in parallel with crawling other pages
         for (const link of linksToCheck) {
           // Fire and forget - check in background
-          checkUrlInBackground(link, page, scan, crawledUrls).then((result) => {
-            linksChecked++;
-            scan.progress.linksChecked = linksChecked;
+          // IMPORTANT: Use .finally() to ensure counter always increments, even on errors
+          checkUrlInBackground(link, page, scan, crawledUrls)
+            .then((result) => {
+              if (result && !result.ok) {
+                scan.progress.brokenLinks = (scan.progress.brokenLinks || 0) + 1;
+              }
+            })
+            .catch((error) => {
+              // Log but don't crash - some links will fail
+              console.error(`Error checking ${link.url}:`, error.message);
+            })
+            .finally(() => {
+              // ALWAYS increment counter, even if check failed/timed out
+              linksChecked++;
+              scan.progress.linksChecked = linksChecked;
 
-            if (result && !result.ok) {
-              scan.progress.brokenLinks = (scan.progress.brokenLinks || 0) + 1;
-            }
-
-            // Calculate ETA
-            const elapsed = Date.now() - scan.progress.startTime;
-            const rate = linksChecked / elapsed;
-            const remaining = Math.max(0, totalLinksFound - linksChecked);
-            scan.progress.eta = remaining > 0 ? Math.round(remaining / rate) : 0;
-          });
+              // Calculate ETA
+              const elapsed = Date.now() - scan.progress.startTime;
+              const rate = linksChecked / elapsed;
+              const remaining = Math.max(0, totalLinksFound - linksChecked);
+              scan.progress.eta = remaining > 0 ? Math.round(remaining / rate) : 0;
+            });
         }
       }
     );
