@@ -4,7 +4,7 @@ const https = require('https');
 
 // Configuration
 const CONCURRENCY = 500; // Check 500 links simultaneously (5x increase!)
-const TIMEOUT = 2000; // 2 seconds (even more aggressive)
+const TIMEOUT = 5000; // 5 seconds (more reasonable to avoid false positives)
 
 // Connection pooling for massive performance boost
 const httpAgent = new http.Agent({
@@ -56,11 +56,13 @@ async function checkLinks(pages, crawledPages, onProgress, onBrokenLinkFound) {
       linksSkipped: linksToCheckArray.length - filteredLinks.length,
       brokenLinks: 0,
       workingLinks: 0,
-      redirects: 0
+      redirects: 0,
+      warnings: 0
     },
     pages: [],
     brokenLinks: [],
-    redirects: []
+    redirects: [],
+    warnings: [] // 403s and other access-denied
   };
 
   let checked = 0;
@@ -82,24 +84,41 @@ async function checkLinks(pages, crawledPages, onProgress, onBrokenLinkFound) {
       }
 
       if (!checkResult.ok) {
-        broken++;
-        const brokenLinkData = {
-          url,
-          status: checkResult.status,
-          message: checkResult.message,
-          occurrences: occurrences.map(o => ({
-            page: o.page,
-            text: o.link.text,
-            type: o.link.type
-          }))
-        };
-        results.brokenLinks.push(brokenLinkData);
+        // Treat 403/401 as warnings (site blocking crawlers, but may work for users)
+        if (checkResult.status === 403 || checkResult.status === 401) {
+          const warningData = {
+            url,
+            status: checkResult.status,
+            message: checkResult.message + ' (may be accessible to users)',
+            occurrences: occurrences.map(o => ({
+              page: o.page,
+              text: o.link.text,
+              type: o.link.type
+            }))
+          };
+          results.warnings.push(warningData);
+        } else {
+          // Real broken link
+          broken++;
+          const brokenLinkData = {
+            url,
+            status: checkResult.status,
+            message: checkResult.message,
+            occurrences: occurrences.map(o => ({
+              page: o.page,
+              text: o.link.text,
+              type: o.link.type
+            }))
+          };
+          results.brokenLinks.push(brokenLinkData);
 
-        // Immediately notify about broken link (real-time!)
-        if (onBrokenLinkFound) {
-          onBrokenLinkFound(brokenLinkData);
+          // Immediately notify about broken link (real-time!)
+          if (onBrokenLinkFound) {
+            onBrokenLinkFound(brokenLinkData);
+          }
         }
-      } else if (checkResult.redirected) {
+      } else if (checkResult.redirected && !isTrivialRedirect(url, checkResult.finalUrl)) {
+        // Only report non-trivial redirects
         results.redirects.push({
           url,
           redirectTo: checkResult.finalUrl,
@@ -143,11 +162,42 @@ async function checkLinks(pages, crawledPages, onProgress, onBrokenLinkFound) {
   }
 
   results.summary.brokenLinks = results.brokenLinks.length;
+  results.summary.warnings = results.warnings.length;
   results.summary.linksChecked = checked + results.summary.linksSkipped;
-  results.summary.workingLinks = results.summary.totalLinks - results.brokenLinks.length - results.redirects.length;
+  results.summary.workingLinks = results.summary.totalLinks - results.brokenLinks.length - results.redirects.length - results.warnings.length;
   results.summary.redirects = results.redirects.length;
 
   return results;
+}
+
+/**
+ * Check if a redirect is trivial (www vs non-www, http vs https)
+ */
+function isTrivialRedirect(originalUrl, finalUrl) {
+  try {
+    const orig = new URL(originalUrl);
+    const final = new URL(finalUrl);
+
+    // Normalize for comparison
+    const origHost = orig.hostname.replace(/^www\./, '');
+    const finalHost = final.hostname.replace(/^www\./, '');
+
+    // Same domain, same path = trivial (just www or protocol change)
+    if (origHost === finalHost && orig.pathname === final.pathname) {
+      return true;
+    }
+
+    // Trailing slash difference
+    const origPath = orig.pathname.replace(/\/$/, '');
+    const finalPath = final.pathname.replace(/\/$/, '');
+    if (origHost === finalHost && origPath === finalPath) {
+      return true;
+    }
+
+    return false;
+  } catch (e) {
+    return false;
+  }
 }
 
 /**

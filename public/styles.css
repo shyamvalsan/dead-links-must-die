@@ -186,6 +186,12 @@ header h1 {
   font-size: 0.875rem;
 }
 
+.elapsed-time {
+  margin-top: 0.5rem;
+  font-weight: 600;
+  color: var(--primary-color);
+}
+
 /* Live Broken Links Section */
 .live-broken-links {
   margin-top: 2rem;
@@ -272,6 +278,67 @@ header h1 {
 }
 
 /* Results Section */
+.dashboard {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.dashboard-stat {
+  background: var(--bg-color);
+  padding: 2rem 1.5rem;
+  border-radius: 12px;
+  text-align: center;
+  border: 2px solid var(--border-color);
+  transition: all 0.3s ease;
+}
+
+.dashboard-stat:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+}
+
+.dashboard-stat.success {
+  border-color: var(--success-color);
+  background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+}
+
+.dashboard-stat.error {
+  border-color: var(--error-color);
+  background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+}
+
+.dash-value {
+  font-size: 3rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+  color: var(--primary-color);
+}
+
+.dashboard-stat.success .dash-value {
+  color: var(--success-color);
+}
+
+.dashboard-stat.error .dash-value {
+  color: var(--error-color);
+}
+
+.dash-label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+}
+
+.section-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin: 2rem 0 1rem;
+  color: var(--text-primary);
+}
+
 .summary {
   background: var(--bg-color);
   padding: 1.5rem;
@@ -318,8 +385,15 @@ header h1 {
 
 .results-group h3 {
   font-size: 1.25rem;
-  margin-bottom: 1rem;
+  margin-bottom: 0.5rem;
   color: var(--text-primary);
+}
+
+.group-description {
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  margin-bottom: 1rem;
+  font-style: italic;
 }
 
 .link-item {
@@ -332,6 +406,11 @@ header h1 {
 
 .link-item.redirect {
   border-left-color: var(--warning-color);
+}
+
+.link-item.warning {
+  border-left-color: var(--warning-color);
+  background: #fffbeb;
 }
 
 .link-url {

@@ -41,7 +41,8 @@ app.post('/api/scan', async (req, res) => {
       totalLinks: 0,
       brokenLinks: 0,
       startTime: Date.now(),
-      eta: null
+      eta: null,
+      elapsedTime: 0
     },
     results: null,
     liveBrokenLinks: [] // Real-time broken links as they're found
@@ -78,6 +79,9 @@ app.get('/api/scan/:scanId/progress', (req, res) => {
       res.end();
       return;
     }
+
+    // Calculate elapsed time
+    scan.progress.elapsedTime = Date.now() - scan.progress.startTime;
 
     res.write(`data: ${JSON.stringify(scan)}\n\n`);
 
@@ -203,11 +207,11 @@ async function checkUrlInBackground(link, page, scan, crawledUrls) {
   const https = require('https');
 
   try {
-    const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 500, timeout: 2000 });
-    const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 500, timeout: 2000 });
+    const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 500, timeout: 5000 });
+    const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 500, timeout: 5000 });
 
     const response = await axios.head(link.url, {
-      timeout: 2000,
+      timeout: 5000,
       maxRedirects: 5,
       validateStatus: null,
       httpAgent,
@@ -218,19 +222,22 @@ async function checkUrlInBackground(link, page, scan, crawledUrls) {
     const ok = response.status >= 200 && response.status < 400;
 
     if (!ok) {
-      // Found broken link - stream it immediately!
-      const brokenLinkData = {
-        url: link.url,
-        status: response.status,
-        message: response.status ? `HTTP ${response.status}` : 'Request failed',
-        occurrences: [{
-          page: page.url,
-          text: link.text,
-          type: link.type
-        }]
-      };
+      // Skip 403/401 warnings (not truly broken, just access denied)
+      if (response.status !== 403 && response.status !== 401) {
+        // Found broken link - stream it immediately!
+        const brokenLinkData = {
+          url: link.url,
+          status: response.status,
+          message: response.status ? `HTTP ${response.status}` : 'Request failed',
+          occurrences: [{
+            page: page.url,
+            text: link.text,
+            type: link.type
+          }]
+        };
 
-      scan.liveBrokenLinks.push(brokenLinkData);
+        scan.liveBrokenLinks.push(brokenLinkData);
+      }
     }
 
     return { ok, status: response.status };
