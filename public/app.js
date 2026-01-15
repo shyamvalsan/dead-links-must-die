@@ -237,31 +237,9 @@ function showResults(data) {
   resultWarnings.textContent = results.summary.warnings || 0;
   resultBroken.textContent = results.summary.brokenLinks;
 
-  // Show broken links
-  if (results.brokenLinks.length > 0) {
-    const brokenLinksHtml = `
-      <div class="results-group">
-        <h3>🔴 Broken Links (${results.brokenLinks.length})</h3>
-        ${results.brokenLinks.map(link => `
-          <div class="link-item">
-            <span class="link-url">${escapeHtml(link.url)}</span>
-            <span class="link-status">${escapeHtml(link.status)} - ${escapeHtml(link.message)}</span>
-            <div class="occurrences">
-              <div class="occurrences-title">Found on ${link.occurrences.length} page${link.occurrences.length > 1 ? 's' : ''}:</div>
-              ${link.occurrences.slice(0, 5).map(occ => `
-                <div class="occurrence">
-                  • <span class="occurrence-page">${escapeHtml(occ.page)}</span>
-                  ${occ.type === 'image' ? '(image)' : `- ${escapeHtml(occ.text.substring(0, 60))}${occ.text.length > 60 ? '...' : ''}`}
-                </div>
-              `).join('')}
-              ${link.occurrences.length > 5 ? `<div class="occurrence">... and ${link.occurrences.length - 5} more</div>` : ''}
-            </div>
-          </div>
-        `).join('')}
-      </div>
-    `;
-    brokenLinksContainer.innerHTML = brokenLinksHtml;
-  }
+  // Setup enhanced visualization controls and render broken links
+  setupResultsControls(results);
+  renderBrokenLinks(results.brokenLinks || [], 'none');
 
   // Show warnings (403/401)
   if (results.warnings && results.warnings.length > 0) {
@@ -380,3 +358,371 @@ function escapeHtml(text) {
   div.textContent = text;
   return div.innerHTML;
 }
+
+// ======================================
+// ENHANCED VISUALIZATION & EXPORT
+// ======================================
+
+let currentResults = null; // Store current results for filtering/grouping
+let currentFiltered = null; // Currently filtered/grouped results
+
+// Setup controls after results are displayed
+function setupResultsControls(results) {
+  currentResults = results;
+  currentFiltered = results.brokenLinks || [];
+
+  const controlsDiv = document.getElementById('results-controls');
+  const searchBox = document.getElementById('search-box');
+  const groupBySelect = document.getElementById('group-by-select');
+  const exportCsvBtn = document.getElementById('export-csv-button');
+  const exportJsonBtn = document.getElementById('export-json-button');
+  const resultsCount = document.getElementById('results-count');
+
+  if (!controlsDiv) return;
+
+  // Only show controls if there are broken links
+  if (!results.brokenLinks || results.brokenLinks.length === 0) {
+    controlsDiv.style.display = 'none';
+    return;
+  }
+
+  controlsDiv.style.display = 'block';
+  updateResultsCount(results.brokenLinks.length, results.brokenLinks.length);
+
+  // Search functionality
+  searchBox.addEventListener('input', (e) => {
+    const searchTerm = e.target.value.toLowerCase();
+    const groupBy = groupBySelect.value;
+
+    if (searchTerm === '') {
+      currentFiltered = results.brokenLinks;
+    } else {
+      currentFiltered = results.brokenLinks.filter(link =>
+        link.url.toLowerCase().includes(searchTerm) ||
+        (link.message && link.message.toLowerCase().includes(searchTerm)) ||
+        link.occurrences.some(occ => occ.page.toLowerCase().includes(searchTerm))
+      );
+    }
+
+    updateResultsCount(currentFiltered.length, results.brokenLinks.length);
+    renderBrokenLinks(currentFiltered, groupBy);
+  });
+
+  // Group by functionality
+  groupBySelect.addEventListener('change', (e) => {
+    const groupBy = e.target.value;
+    const searchTerm = searchBox.value.toLowerCase();
+
+    // Re-filter with current search term
+    if (searchTerm === '') {
+      currentFiltered = results.brokenLinks;
+    } else {
+      currentFiltered = results.brokenLinks.filter(link =>
+        link.url.toLowerCase().includes(searchTerm) ||
+        (link.message && link.message.toLowerCase().includes(searchTerm)) ||
+        link.occurrences.some(occ => occ.page.toLowerCase().includes(searchTerm))
+      );
+    }
+
+    renderBrokenLinks(currentFiltered, groupBy);
+  });
+
+  // Export CSV
+  exportCsvBtn.addEventListener('click', () => exportToCSV(results));
+
+  // Export JSON
+  exportJsonBtn.addEventListener('click', () => exportToJSON(results));
+}
+
+function updateResultsCount(showing, total) {
+  const resultsCount = document.getElementById('results-count');
+  if (showing === total) {
+    resultsCount.textContent = `Showing all ${total} result${total !== 1 ? 's' : ''}`;
+  } else {
+    resultsCount.textContent = `Showing ${showing} of ${total} results`;
+  }
+}
+
+function renderBrokenLinks(brokenLinks, groupBy = 'none') {
+  const container = document.getElementById('broken-links-container');
+
+  if (!brokenLinks || brokenLinks.length === 0) {
+    container.innerHTML = '<div class="results-group"><p class="group-description">No broken links found matching your search.</p></div>';
+    return;
+  }
+
+  if (groupBy === 'none') {
+    // Original flat list
+    const html = `
+      <div class="results-group">
+        <h3>🚫 Broken Links (${brokenLinks.length})</h3>
+        <p class="group-description">These links returned errors when checked. They should be fixed or removed.</p>
+        ${brokenLinks.map(link => `
+          <div class="link-item">
+            <span class="link-url">${escapeHtml(link.url)}</span>
+            <span class="link-status">${escapeHtml(link.status)} - ${escapeHtml(link.message)}</span>
+            <div class="occurrences">
+              <div class="occurrences-title">Found on ${link.occurrences.length} page${link.occurrences.length > 1 ? 's' : ''}:</div>
+              ${link.occurrences.slice(0, 3).map(occ => `
+                <div class="occurrence">
+                  • <span class="occurrence-page">${escapeHtml(occ.page)}</span>
+                  ${occ.type === 'image' ? '🖼️ Image' : '🔗 Link'}
+                  ${occ.text ? `- "${escapeHtml(occ.text)}"` : ''}
+                </div>
+              `).join('')}
+              ${link.occurrences.length > 3 ? `<div class="occurrence">... and ${link.occurrences.length - 3} more</div>` : ''}
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+    container.innerHTML = html;
+  } else if (groupBy === 'error-type') {
+    renderGroupedByErrorType(brokenLinks, container);
+  } else if (groupBy === 'page') {
+    renderGroupedByPage(brokenLinks, container);
+  } else if (groupBy === 'link-type') {
+    renderGroupedByLinkType(brokenLinks, container);
+  }
+}
+
+function renderGroupedByErrorType(brokenLinks, container) {
+  const groups = {};
+
+  brokenLinks.forEach(link => {
+    const key = `${link.status} - ${link.message}`;
+    if (!groups[key]) {
+      groups[key] = {
+        status: link.status,
+        message: link.message,
+        links: []
+      };
+    }
+    groups[key].links.push(link);
+  });
+
+  const html = Object.keys(groups).map(key => {
+    const group = groups[key];
+    const groupId = `group-error-${key.replace(/[^a-z0-9]/gi, '-')}`;
+    return `
+      <div class="group-container">
+        <div class="group-header" onclick="toggleGroup('${groupId}')">
+          <span class="group-title">${escapeHtml(key)}</span>
+          <span class="group-badge">${group.links.length}</span>
+        </div>
+        <div class="group-content" id="${groupId}">
+          ${group.links.map(link => `
+            <div class="link-item">
+              <span class="link-url">${escapeHtml(link.url)}</span>
+              <div class="occurrences">
+                <div class="occurrences-title">Found on ${link.occurrences.length} page${link.occurrences.length > 1 ? 's' : ''}:</div>
+                ${link.occurrences.slice(0, 3).map(occ => `
+                  <div class="occurrence">
+                    • <span class="occurrence-page">${escapeHtml(occ.page)}</span>
+                    ${occ.type === 'image' ? '🖼️ Image' : '🔗 Link'}
+                  </div>
+                `).join('')}
+                ${link.occurrences.length > 3 ? `<div class="occurrence">... and ${link.occurrences.length - 3} more</div>` : ''}
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  container.innerHTML = '<div class="results-group"><h3>🚫 Broken Links - Grouped by Error Type</h3></div>' + html;
+}
+
+function renderGroupedByPage(brokenLinks, container) {
+  const groups = {};
+
+  brokenLinks.forEach(link => {
+    link.occurrences.forEach(occ => {
+      if (!groups[occ.page]) {
+        groups[occ.page] = [];
+      }
+      groups[occ.page].push({
+        ...link,
+        currentOccurrence: occ
+      });
+    });
+  });
+
+  const html = Object.keys(groups).map(page => {
+    const links = groups[page];
+    const groupId = `group-page-${page.replace(/[^a-z0-9]/gi, '-')}`;
+    return `
+      <div class="group-container">
+        <div class="group-header" onclick="toggleGroup('${groupId}')">
+          <span class="group-title">${escapeHtml(page)}</span>
+          <span class="group-badge">${links.length}</span>
+        </div>
+        <div class="group-content" id="${groupId}">
+          ${links.map(link => `
+            <div class="link-item">
+              <span class="link-url">${escapeHtml(link.url)}</span>
+              <span class="link-status">${escapeHtml(link.status)} - ${escapeHtml(link.message)}</span>
+              <div class="occurrence">
+                ${link.currentOccurrence.type === 'image' ? '🖼️ Image' : '🔗 Link'}
+                ${link.currentOccurrence.text ? `- "${escapeHtml(link.currentOccurrence.text)}"` : ''}
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  container.innerHTML = '<div class="results-group"><h3>🚫 Broken Links - Grouped by Page</h3></div>' + html;
+}
+
+function renderGroupedByLinkType(brokenLinks, container) {
+  const imageLinks = [];
+  const regularLinks = [];
+
+  brokenLinks.forEach(link => {
+    const hasImage = link.occurrences.some(occ => occ.type === 'image');
+    if (hasImage) {
+      imageLinks.push(link);
+    } else {
+      regularLinks.push(link);
+    }
+  });
+
+  const html = `
+    <div class="results-group"><h3>🚫 Broken Links - Grouped by Type</h3></div>
+    ${regularLinks.length > 0 ? `
+      <div class="group-container">
+        <div class="group-header" onclick="toggleGroup('group-regular-links')">
+          <span class="group-title">🔗 Regular Links</span>
+          <span class="group-badge">${regularLinks.length}</span>
+        </div>
+        <div class="group-content" id="group-regular-links">
+          ${regularLinks.map(link => `
+            <div class="link-item">
+              <span class="link-url">${escapeHtml(link.url)}</span>
+              <span class="link-status">${escapeHtml(link.status)} - ${escapeHtml(link.message)}</span>
+              <div class="occurrences">
+                <div class="occurrences-title">Found on ${link.occurrences.length} page${link.occurrences.length > 1 ? 's' : ''}:</div>
+                ${link.occurrences.slice(0, 3).map(occ => `
+                  <div class="occurrence">
+                    • <span class="occurrence-page">${escapeHtml(occ.page)}</span>
+                  </div>
+                `).join('')}
+                ${link.occurrences.length > 3 ? `<div class="occurrence">... and ${link.occurrences.length - 3} more</div>` : ''}
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    ` : ''}
+    ${imageLinks.length > 0 ? `
+      <div class="group-container">
+        <div class="group-header" onclick="toggleGroup('group-image-links')">
+          <span class="group-title">🖼️ Images</span>
+          <span class="group-badge">${imageLinks.length}</span>
+        </div>
+        <div class="group-content" id="group-image-links">
+          ${imageLinks.map(link => `
+            <div class="link-item">
+              <span class="link-url">${escapeHtml(link.url)}</span>
+              <span class="link-status">${escapeHtml(link.status)} - ${escapeHtml(link.message)}</span>
+              <div class="occurrences">
+                <div class="occurrences-title">Found on ${link.occurrences.length} page${link.occurrences.length > 1 ? 's' : ''}:</div>
+                ${link.occurrences.slice(0, 3).map(occ => `
+                  <div class="occurrence">
+                    • <span class="occurrence-page">${escapeHtml(occ.page)}</span>
+                    ${occ.text ? `- Alt: "${escapeHtml(occ.text)}"` : ''}
+                  </div>
+                `).join('')}
+                ${link.occurrences.length > 3 ? `<div class="occurrence">... and ${link.occurrences.length - 3} more</div>` : ''}
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    ` : ''}
+  `;
+
+  container.innerHTML = html;
+}
+
+function toggleGroup(groupId) {
+  const group = document.getElementById(groupId);
+  const header = group.previousElementSibling;
+
+  if (group.classList.contains('collapsed')) {
+    group.classList.remove('collapsed');
+    header.classList.remove('collapsed');
+  } else {
+    group.classList.add('collapsed');
+    header.classList.add('collapsed');
+  }
+}
+
+function exportToCSV(results) {
+  if (!results.brokenLinks || results.brokenLinks.length === 0) {
+    alert('No broken links to export');
+    return;
+  }
+
+  const rows = [['URL', 'Status', 'Error', 'Type', 'Found On Page', 'Link Text']];
+
+  results.brokenLinks.forEach(link => {
+    link.occurrences.forEach(occ => {
+      rows.push([
+        link.url,
+        link.status,
+        link.message,
+        occ.type,
+        occ.page,
+        occ.text || ''
+      ]);
+    });
+  });
+
+  const csvContent = rows.map(row =>
+    row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')
+  ).join('\n');
+
+  downloadFile(csvContent, 'broken-links.csv', 'text/csv');
+}
+
+function exportToJSON(results) {
+  if (!results.brokenLinks || results.brokenLinks.length === 0) {
+    alert('No broken links to export');
+    return;
+  }
+
+  const data = {
+    scanDate: new Date().toISOString(),
+    website: urlInput.value,
+    summary: {
+      totalPages: results.summary?.totalPages || 0,
+      totalLinks: results.summary?.totalLinks || 0,
+      brokenLinks: results.brokenLinks.length,
+      warnings: results.warnings?.length || 0,
+      redirects: results.redirects?.length || 0
+    },
+    brokenLinks: results.brokenLinks
+  };
+
+  const jsonContent = JSON.stringify(data, null, 2);
+  downloadFile(jsonContent, 'broken-links.json', 'application/json');
+}
+
+function downloadFile(content, filename, mimeType) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+// Make toggleGroup available globally
+window.toggleGroup = toggleGroup;
