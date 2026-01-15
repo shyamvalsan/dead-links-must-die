@@ -11,7 +11,7 @@ const MAX_PAGES = 10000; // Much higher limit (10k pages)
  * Crawl a website and discover all pages, links, and images with massive parallelization
  */
 async function crawlWebsite(startUrl, onProgress, onPageCrawled) {
-  const baseUrl = new URL(startUrl);
+  let baseUrl = new URL(startUrl); // Changed to 'let' so we can update it after redirects
   const visited = new Set();
   const toVisit = [startUrl];
   const pages = [];
