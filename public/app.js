@@ -11,11 +11,21 @@ const errorSection = document.getElementById('error-section');
 const stageText = document.getElementById('stage-text');
 const pagesFoundEl = document.getElementById('pages-found');
 const pagesCrawledEl = document.getElementById('pages-crawled');
+const totalLinksEl = document.getElementById('total-links');
 const linksCheckedEl = document.getElementById('links-checked');
 const brokenCountEl = document.getElementById('broken-count');
 const progressBar = document.getElementById('progress-bar');
 const etaText = document.getElementById('eta-text');
 const elapsedTimeEl = document.getElementById('elapsed-time');
+const errorDashboardSection = document.getElementById('error-dashboard-section');
+const error404El = document.getElementById('error-404');
+const errorTimeoutEl = document.getElementById('error-timeout');
+const errorConnAbortedEl = document.getElementById('error-connaborted');
+const errorDnsEl = document.getElementById('error-dns');
+const error403El = document.getElementById('error-403');
+const error500El = document.getElementById('error-500');
+const error401El = document.getElementById('error-401');
+const errorOtherEl = document.getElementById('error-other');
 const liveBrokenLinksSection = document.getElementById('live-broken-links-section');
 const liveBrokenLinksContainer = document.getElementById('live-broken-links-container');
 
@@ -131,6 +141,7 @@ function updateProgress(data) {
   // Update stats
   pagesFoundEl.textContent = progress.pagesFound || 0;
   pagesCrawledEl.textContent = progress.pagesCrawled || 0;
+  totalLinksEl.textContent = progress.totalLinks || 0;
   linksCheckedEl.textContent = progress.linksChecked || 0;
   brokenCountEl.textContent = progress.brokenLinks || 0;
 
@@ -169,6 +180,25 @@ function updateProgress(data) {
       const remainingSecs = seconds % 60;
       elapsedTimeEl.textContent = `${minutes}m ${remainingSecs}s`;
     }
+  }
+
+  // Update error breakdown dashboard (REAL-TIME!)
+  if (data.errorBreakdown) {
+    const breakdown = data.errorBreakdown;
+    const hasErrors = Object.values(breakdown).some(count => count > 0);
+
+    if (hasErrors && errorDashboardSection.classList.contains('hidden')) {
+      errorDashboardSection.classList.remove('hidden');
+    }
+
+    error404El.textContent = breakdown['404'] || 0;
+    errorTimeoutEl.textContent = breakdown['ETIMEDOUT'] || 0;
+    errorConnAbortedEl.textContent = breakdown['ECONNABORTED'] || 0;
+    errorDnsEl.textContent = breakdown['DNS_FAILED'] || 0;
+    error403El.textContent = breakdown['403'] || 0;
+    error500El.textContent = breakdown['500'] || 0;
+    error401El.textContent = breakdown['401'] || 0;
+    errorOtherEl.textContent = breakdown['OTHER'] || 0;
   }
 
   // Update live broken links (REAL-TIME!)

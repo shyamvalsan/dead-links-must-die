@@ -44,6 +44,17 @@ app.post('/api/scan', async (req, res) => {
       eta: null,
       elapsedTime: 0
     },
+    errorBreakdown: {
+      '404': 0,
+      '500': 0,
+      '403': 0,
+      '401': 0,
+      'ETIMEDOUT': 0,
+      'ECONNABORTED': 0,
+      'ECONNREFUSED': 0,
+      'DNS_FAILED': 0,
+      'OTHER': 0
+    },
     results: null,
     liveBrokenLinks: [] // Real-time broken links as they're found
   });
@@ -182,10 +193,30 @@ async function performScan(scanId, url) {
 
     console.log(`✅ Crawling complete: ${pages.length} pages`);
     console.log(`🔍 Waiting for remaining link checks to complete...`);
+    console.log(`   Expected: ${checkedUrls.size} checks, Completed: ${linksChecked}`);
 
-    // Wait for all background checks to finish
+    // Wait for all background checks to finish with timeout protection
+    let lastProgress = linksChecked;
+    let noProgressCount = 0;
+    const MAX_NO_PROGRESS_CYCLES = 30; // 30 seconds without progress = give up
+
     while (linksChecked < checkedUrls.size) {
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Check if we made progress
+      if (linksChecked > lastProgress) {
+        lastProgress = linksChecked;
+        noProgressCount = 0;
+        console.log(`   Progress: ${linksChecked}/${checkedUrls.size} checks complete`);
+      } else {
+        noProgressCount++;
+
+        // If no progress for 30 seconds, give up waiting
+        if (noProgressCount >= MAX_NO_PROGRESS_CYCLES) {
+          console.log(`⚠️  No progress for ${MAX_NO_PROGRESS_CYCLES}s, completing scan with ${linksChecked}/${checkedUrls.size} checks`);
+          break;
+        }
+      }
     }
 
     // Compile final results
@@ -208,6 +239,26 @@ async function performScan(scanId, url) {
     console.error('Scan error:', error);
     scan.status = 'error';
     scan.error = error.message;
+  }
+}
+
+// Helper to categorize and track error types
+function trackError(scan, status, message) {
+  let errorType = 'OTHER';
+
+  if (status === 404) errorType = '404';
+  else if (status === 500 || status === 502 || status === 503 || status === 504) errorType = '500';
+  else if (status === 403) errorType = '403';
+  else if (status === 401) errorType = '401';
+  else if (message && message.includes('ETIMEDOUT')) errorType = 'ETIMEDOUT';
+  else if (message && message.includes('ECONNABORTED')) errorType = 'ECONNABORTED';
+  else if (message && message.includes('ECONNREFUSED')) errorType = 'ECONNREFUSED';
+  else if (message && message.includes('DNS')) errorType = 'DNS_FAILED';
+
+  if (scan.errorBreakdown[errorType] !== undefined) {
+    scan.errorBreakdown[errorType]++;
+  } else {
+    scan.errorBreakdown['OTHER']++;
   }
 }
 
@@ -265,10 +316,12 @@ async function checkUrlInBackground(link, page, scan, crawledUrls) {
 
           // GET also failed, use GET result
           if (getResponse.status !== 403 && getResponse.status !== 401) {
+            const message = `HTTP ${getResponse.status}`;
+            trackError(scan, getResponse.status, message);
             scan.liveBrokenLinks.push({
               url: link.url,
               status: getResponse.status,
-              message: `HTTP ${getResponse.status}`,
+              message,
               occurrences: [{ page: page.url, text: link.text, type: link.type }]
             });
           }
@@ -281,10 +334,12 @@ async function checkUrlInBackground(link, page, scan, crawledUrls) {
 
       // Process HEAD result
       if (!ok && response.status !== 403 && response.status !== 401) {
+        const message = `HTTP ${response.status}`;
+        trackError(scan, response.status, message);
         scan.liveBrokenLinks.push({
           url: link.url,
           status: response.status,
-          message: `HTTP ${response.status}`,
+          message,
           occurrences: [{ page: page.url, text: link.text, type: link.type }]
         });
       }
@@ -301,10 +356,12 @@ async function checkUrlInBackground(link, page, scan, crawledUrls) {
       }
 
       // Final attempt failed
+      const message = error.code || error.message || 'Request failed';
+      trackError(scan, 0, message);
       scan.liveBrokenLinks.push({
         url: link.url,
         status: 0,
-        message: error.code || error.message || 'Request failed',
+        message,
         occurrences: [{ page: page.url, text: link.text, type: link.type }]
       });
       return { ok: false, status: 0 };
