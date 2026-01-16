@@ -1,29 +1,173 @@
 const axios = require('axios');
 const http = require('http');
 const https = require('https');
+const dns = require('dns').promises;
+const { URL } = require('url');
 
 // Configuration
-const CONCURRENCY = 200; // Reduced from 500 to avoid rate limiting
-const TIMEOUT = 10000; // 10 seconds (increased to reduce false timeouts)
+const CONCURRENCY_PER_DOMAIN = 3; // Max 3 concurrent requests per domain
+const DOMAIN_DELAY_MS = 500; // 500ms delay between requests to same domain
+const TIMEOUT = 10000; // 10 seconds
 const MAX_RETRIES = 2; // Retry failed requests twice
+const CIRCUIT_BREAKER_THRESHOLD = 5; // After 5 failures, stop checking domain
+const DNS_TIMEOUT = 5000; // 5 seconds for DNS lookup
 
-// Connection pooling for massive performance boost
+// Connection pooling
 const httpAgent = new http.Agent({
   keepAlive: true,
-  maxSockets: 200,
-  maxFreeSockets: 50,
+  maxSockets: 100,
+  maxFreeSockets: 25,
   timeout: TIMEOUT
 });
 
 const httpsAgent = new https.Agent({
   keepAlive: true,
-  maxSockets: 200,
-  maxFreeSockets: 50,
+  maxSockets: 100,
+  maxFreeSockets: 25,
   timeout: TIMEOUT
 });
 
 /**
- * Check all links and images for broken/dead links with massive parallelization
+ * Extract domain from URL
+ */
+function getDomain(url) {
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname;
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * Check if domain exists via DNS lookup (fast pre-check)
+ */
+async function checkDomainDNS(domain) {
+  try {
+    await dns.resolve(domain);
+    return { exists: true };
+  } catch (error) {
+    return { exists: false, error: error.code || 'DNS_FAILED' };
+  }
+}
+
+/**
+ * Delay helper with random jitter
+ */
+function delay(ms) {
+  const jitter = Math.random() * 200; // Add 0-200ms random jitter
+  return new Promise(resolve => setTimeout(resolve, ms + jitter));
+}
+
+/**
+ * Check links for a single domain with rate limiting and circuit breaker
+ */
+async function checkDomainLinks(domain, links, onProgress, onBrokenLinkFound) {
+  const results = {
+    checked: 0,
+    broken: [],
+    warnings: [],
+    redirects: [],
+    circuitBroken: false
+  };
+
+  let consecutiveFailures = 0;
+
+  // Process links sequentially with delays (respects rate limits)
+  for (let i = 0; i < links.length; i++) {
+    const [url, occurrences] = links[i];
+
+    // Circuit breaker: if too many consecutive failures, stop
+    if (consecutiveFailures >= CIRCUIT_BREAKER_THRESHOLD) {
+      console.log(`⚠️  Circuit breaker triggered for ${domain} - skipping remaining ${links.length - i} links`);
+      results.circuitBroken = true;
+
+      // Mark remaining as unable to verify
+      for (let j = i; j < links.length; j++) {
+        const [remainingUrl, remainingOcc] = links[j];
+        results.warnings.push({
+          url: remainingUrl,
+          status: 0,
+          message: 'Unable to verify (domain rate limited)',
+          occurrences: remainingOcc.map(o => ({
+            page: o.page,
+            text: o.link.text,
+            type: o.link.type
+          }))
+        });
+      }
+      break;
+    }
+
+    // Check the URL
+    const checkResult = await checkUrl(url);
+    results.checked++;
+
+    // Track consecutive failures for circuit breaker
+    if (checkResult.status === 0 || checkResult.message?.includes('ECONNABORTED')) {
+      consecutiveFailures++;
+    } else {
+      consecutiveFailures = 0; // Reset on success or HTTP error
+    }
+
+    // Process result
+    if (!checkResult.ok) {
+      if (checkResult.status === 403 || checkResult.status === 401) {
+        results.warnings.push({
+          url,
+          status: checkResult.status,
+          message: checkResult.message + ' (may be accessible to users)',
+          occurrences: occurrences.map(o => ({
+            page: o.page,
+            text: o.link.text,
+            type: o.link.type
+          }))
+        });
+      } else {
+        const brokenLinkData = {
+          url,
+          status: checkResult.status,
+          message: checkResult.message,
+          occurrences: occurrences.map(o => ({
+            page: o.page,
+            text: o.link.text,
+            type: o.link.type
+          }))
+        };
+        results.broken.push(brokenLinkData);
+
+        if (onBrokenLinkFound) {
+          onBrokenLinkFound(brokenLinkData);
+        }
+      }
+    } else if (checkResult.redirected && !isTrivialRedirect(url, checkResult.finalUrl)) {
+      results.redirects.push({
+        url,
+        redirectTo: checkResult.finalUrl,
+        occurrences: occurrences.map(o => ({
+          page: o.page,
+          text: o.link.text,
+          type: o.link.type
+        }))
+      });
+    }
+
+    // Progress callback
+    if (onProgress) {
+      onProgress({ checked: 1 });
+    }
+
+    // Respectful delay between requests to same domain
+    if (i < links.length - 1) {
+      await delay(DOMAIN_DELAY_MS);
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Check all links and images with domain-based rate limiting
  */
 async function checkLinks(pages, crawledPages, onProgress, onBrokenLinkFound) {
   // Collect all unique links to check
@@ -49,6 +193,54 @@ async function checkLinks(pages, crawledPages, onProgress, onBrokenLinkFound) {
   console.log(`✅ Skipping ${linksToCheckArray.length - filteredLinks.length} internal links (already crawled)`);
   console.log(`🔍 Checking ${filteredLinks.length} external/uncrawled links`);
 
+  // Group links by domain
+  const domainGroups = new Map(); // domain -> [[url, occurrences], ...]
+
+  for (const [url, occurrences] of filteredLinks) {
+    const domain = getDomain(url);
+    if (!domain) continue;
+
+    if (!domainGroups.has(domain)) {
+      domainGroups.set(domain, []);
+    }
+    domainGroups.get(domain).push([url, occurrences]);
+  }
+
+  console.log(`🌐 Found ${domainGroups.size} unique domains to check`);
+
+  // DNS pre-check: quickly eliminate dead domains
+  console.log(`🔍 Running DNS pre-check on ${domainGroups.size} domains...`);
+  const dnsCheckPromises = Array.from(domainGroups.keys()).map(async (domain) => {
+    const dnsResult = await checkDomainDNS(domain);
+    return { domain, ...dnsResult };
+  });
+
+  const dnsResults = await Promise.all(dnsCheckPromises);
+  const deadDomains = dnsResults.filter(r => !r.exists);
+
+  console.log(`💀 Found ${deadDomains.length} dead domains (DNS failed)`);
+
+  // Remove dead domains and mark their links as broken
+  const deadDomainLinks = [];
+  for (const { domain, error } of deadDomains) {
+    const links = domainGroups.get(domain);
+    for (const [url, occurrences] of links) {
+      deadDomainLinks.push({
+        url,
+        status: 0,
+        message: `DNS lookup failed: ${error}`,
+        occurrences: occurrences.map(o => ({
+          page: o.page,
+          text: o.link.text,
+          type: o.link.type
+        }))
+      });
+    }
+    domainGroups.delete(domain);
+  }
+
+  console.log(`✨ ${domainGroups.size} domains remain for HTTP checking`);
+
   const results = {
     summary: {
       totalPages: pages.length,
@@ -61,79 +253,38 @@ async function checkLinks(pages, crawledPages, onProgress, onBrokenLinkFound) {
       warnings: 0
     },
     pages: [],
-    brokenLinks: [],
+    brokenLinks: [...deadDomainLinks], // Start with DNS failures
     redirects: [],
-    warnings: [] // 403s and other access-denied
+    warnings: []
   };
 
-  let checked = 0;
-  let broken = 0;
+  let checked = deadDomainLinks.length; // Count DNS failures as checked
 
-  // Process links in batches with massive concurrency
-  for (let i = 0; i < filteredLinks.length; i += CONCURRENCY) {
-    const batch = filteredLinks.slice(i, i + CONCURRENCY);
+  // Wrap progress callback to accumulate counts
+  const wrappedProgress = onProgress ? (delta) => {
+    checked += delta.checked || 0;
+    onProgress({ checked: checked + results.summary.linksSkipped, broken: results.brokenLinks.length });
+  } : null;
 
-    // Check all links in this batch simultaneously
-    const checkPromises = batch.map(async ([url, occurrences]) => {
-      const checkResult = await checkUrl(url);
+  // Process ALL domains in parallel (each domain respects its own rate limits internally)
+  console.log(`🚀 Checking links across ${domainGroups.size} domains in parallel...`);
 
-      checked++;
+  const domainCheckPromises = Array.from(domainGroups.entries()).map(async ([domain, links]) => {
+    console.log(`   → ${domain}: checking ${links.length} links`);
+    const domainResults = await checkDomainLinks(domain, links, wrappedProgress, onBrokenLinkFound);
 
-      // Update progress
-      if (onProgress) {
-        onProgress({ checked: checked + results.summary.linksSkipped, broken });
-      }
+    console.log(`   ✓ ${domain}: ${domainResults.checked} checked, ${domainResults.broken.length} broken${domainResults.circuitBroken ? ' (circuit broken)' : ''}`);
 
-      if (!checkResult.ok) {
-        // Treat 403/401 as warnings (site blocking crawlers, but may work for users)
-        if (checkResult.status === 403 || checkResult.status === 401) {
-          const warningData = {
-            url,
-            status: checkResult.status,
-            message: checkResult.message + ' (may be accessible to users)',
-            occurrences: occurrences.map(o => ({
-              page: o.page,
-              text: o.link.text,
-              type: o.link.type
-            }))
-          };
-          results.warnings.push(warningData);
-        } else {
-          // Real broken link
-          broken++;
-          const brokenLinkData = {
-            url,
-            status: checkResult.status,
-            message: checkResult.message,
-            occurrences: occurrences.map(o => ({
-              page: o.page,
-              text: o.link.text,
-              type: o.link.type
-            }))
-          };
-          results.brokenLinks.push(brokenLinkData);
+    return domainResults;
+  });
 
-          // Immediately notify about broken link (real-time!)
-          if (onBrokenLinkFound) {
-            onBrokenLinkFound(brokenLinkData);
-          }
-        }
-      } else if (checkResult.redirected && !isTrivialRedirect(url, checkResult.finalUrl)) {
-        // Only report non-trivial redirects
-        results.redirects.push({
-          url,
-          redirectTo: checkResult.finalUrl,
-          occurrences: occurrences.map(o => ({
-            page: o.page,
-            text: o.link.text,
-            type: o.link.type
-          }))
-        });
-      }
-    });
+  const allDomainResults = await Promise.all(domainCheckPromises);
 
-    // Wait for this batch to complete before moving to next
-    await Promise.all(checkPromises);
+  // Merge all results
+  for (const domainResult of allDomainResults) {
+    results.brokenLinks.push(...domainResult.broken);
+    results.redirects.push(...domainResult.redirects);
+    results.warnings.push(...domainResult.warnings);
   }
 
   // Organize results by page

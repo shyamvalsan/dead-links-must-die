@@ -328,6 +328,85 @@ header h1 {
   color: var(--primary-color);
 }
 
+/* Error Breakdown Dashboard */
+.error-dashboard {
+  margin-top: 2rem;
+  padding-top: 2rem;
+  border-top: 2px solid var(--border-color);
+}
+
+.dashboard-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-bottom: 1.5rem;
+  color: var(--text-primary);
+}
+
+.error-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.error-stat {
+  background: var(--bg-secondary);
+  padding: 1.25rem;
+  border-radius: 12px;
+  border: 2px solid var(--border-color);
+  text-align: center;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.error-stat::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: radial-gradient(circle at top, rgba(239, 68, 68, 0.1), transparent);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.error-stat:hover::before {
+  opacity: 1;
+}
+
+.error-stat:hover {
+  transform: translateY(-4px);
+  border-color: var(--error-color);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2);
+}
+
+.error-icon {
+  font-size: 2rem;
+  margin-bottom: 0.5rem;
+  opacity: 0.8;
+}
+
+.error-count {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--error-color);
+  margin-bottom: 0.5rem;
+  animation: countPulse 0.5s ease;
+}
+
+@keyframes countPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+}
+
+.error-label {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
 /* Live Broken Links Section */
 .live-broken-links {
   margin-top: 2rem;
