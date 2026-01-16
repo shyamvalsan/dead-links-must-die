@@ -38,8 +38,8 @@ async function crawlWebsite(startUrl, onProgress, onPageCrawled) {
     try {
       const parsed = new URL(url);
       const isInternal = parsed.hostname === baseUrl.hostname;
-      // Debug: log first few checks on first page
-      if (pages.length === 0 && debugCheckCount < 5) {
+      // Debug: log first few checks
+      if (debugCheckCount < 3) {
         console.log(`    🔍 Checking ${parsed.hostname} vs ${baseUrl.hostname}: ${isInternal ? 'internal' : 'external'}`);
         debugCheckCount++;
       }
@@ -80,6 +80,10 @@ async function crawlWebsite(startUrl, onProgress, onPageCrawled) {
       });
 
       // Update baseUrl if we got redirected (important for following internal links!)
+      console.log(`  📍 Crawled: ${normalizedUrl}`);
+      console.log(`  📍 Response URL: ${response.request?.res?.responseUrl || 'not available'}`);
+      console.log(`  📍 Current baseUrl: ${baseUrl.hostname}`);
+
       if (response.request.res && response.request.res.responseUrl) {
         const finalUrl = response.request.res.responseUrl;
         if (finalUrl !== normalizedUrl) {
@@ -107,6 +111,11 @@ async function crawlWebsite(startUrl, onProgress, onPageCrawled) {
 
       // Extract all links
       let internalLinksFound = 0;
+      let totalLinksOnPage = 0;
+      let externalLinksCount = 0;
+      let alreadyVisitedCount = 0;
+      let duplicateInToVisitCount = 0;
+
       $('a[href]').each((i, elem) => {
         const href = $(elem).attr('href');
         if (!href) return;
@@ -114,6 +123,7 @@ async function crawlWebsite(startUrl, onProgress, onPageCrawled) {
         const absoluteUrl = toAbsoluteUrl(href, normalizedUrl);
         if (!absoluteUrl) return;
 
+        totalLinksOnPage++;
         const text = $(elem).text().trim().substring(0, 100);
         links.push({
           url: absoluteUrl,
@@ -129,11 +139,18 @@ async function crawlWebsite(startUrl, onProgress, onPageCrawled) {
               toVisit.push(absoluteUrl);
               newInternalLinks.push(absoluteUrl);
               internalLinksFound++;
+            } else {
+              duplicateInToVisitCount++;
             }
+          } else {
+            alreadyVisitedCount++;
           }
+        } else {
+          externalLinksCount++;
         }
       });
 
+      console.log(`  📊 Links on page: ${totalLinksOnPage} total, ${externalLinksCount} external, ${alreadyVisitedCount} already visited, ${duplicateInToVisitCount} duplicates`);
       if (internalLinksFound > 0) {
         console.log(`  📎 Found ${internalLinksFound} new internal links to crawl`);
       }
