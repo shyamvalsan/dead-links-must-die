@@ -1,6 +1,6 @@
 const express = require('express');
 const path = require('path');
-const { crawlWebsite } = require('./crawler');
+const { smartCrawl } = require('./smart-crawler');
 const { checkLinks, checkPageLinks } = require('./checker');
 
 const app = express();
@@ -174,7 +174,8 @@ async function performScan(scanId, url) {
     }, 1000); // Check every second
 
     // TRUE PIPELINE: Check links from each page as soon as it's crawled!
-    const { pages } = await crawlWebsite(
+    // Using smartCrawl for automatic SPA detection and sitemap fallback
+    const { pages } = await smartCrawl(
       url,
       // Progress callback
       (progress) => {
