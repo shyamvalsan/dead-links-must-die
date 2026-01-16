@@ -340,12 +340,17 @@ async function checkUrlInBackground(link, page, scan, crawledUrls) {
   const axios = require('axios');
   const http = require('http');
   const https = require('https');
+  const { HttpsProxyAgent } = require('https-proxy-agent');
 
   const TIMEOUT = 10000; // 10 seconds
   const MAX_RETRIES = 2;
 
+  // Use proxy if configured in environment
+  const proxyUrl = process.env.https_proxy || process.env.HTTPS_PROXY || process.env.http_proxy || process.env.HTTP_PROXY;
   const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 200, timeout: TIMEOUT });
-  const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 200, timeout: TIMEOUT });
+  const httpsAgent = proxyUrl
+    ? new HttpsProxyAgent(proxyUrl)
+    : new https.Agent({ keepAlive: true, maxSockets: 200, timeout: TIMEOUT });
 
   // Try with retry and HEAD->GET fallback
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {

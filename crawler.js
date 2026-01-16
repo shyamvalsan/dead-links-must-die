@@ -2,6 +2,11 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 const { URL } = require('url');
 
+// Proxy configuration from environment variables
+const { HttpsProxyAgent } = require('https-proxy-agent');
+const proxyUrl = process.env.https_proxy || process.env.HTTPS_PROXY || process.env.http_proxy || process.env.HTTP_PROXY;
+const httpsAgent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined;
+
 // Configuration
 const CRAWL_CONCURRENCY = 20; // Crawl 20 pages simultaneously (reduced to avoid rate limits)
 const CRAWL_TIMEOUT = 12000; // 12 seconds per page (increased for reliability)
@@ -33,17 +38,10 @@ async function crawlWebsite(startUrl, onProgress, onPageCrawled) {
   }
 
   // Check if URL is internal (same domain)
-  let debugCheckCount = 0;
   function isInternalUrl(url) {
     try {
       const parsed = new URL(url);
-      const isInternal = parsed.hostname === baseUrl.hostname;
-      // Debug: log first few checks on first page
-      if (pages.length === 0 && debugCheckCount < 5) {
-        console.log(`    🔍 Checking ${parsed.hostname} vs ${baseUrl.hostname}: ${isInternal ? 'internal' : 'external'}`);
-        debugCheckCount++;
-      }
-      return isInternal;
+      return parsed.hostname === baseUrl.hostname;
     } catch (e) {
       return false;
     }
@@ -74,20 +72,27 @@ async function crawlWebsite(startUrl, onProgress, onPageCrawled) {
       const response = await axios.get(normalizedUrl, {
         timeout: CRAWL_TIMEOUT,
         maxRedirects: 5,
+        httpsAgent: httpsAgent,
         headers: {
           'User-Agent': 'Mozilla/5.0 (compatible; DeadLinkChecker/4.0; +https://github.com/deadlinks)'
         }
       });
 
       // Update baseUrl if we got redirected (important for following internal links!)
-      if (response.request.res && response.request.res.responseUrl) {
-        const finalUrl = response.request.res.responseUrl;
-        if (finalUrl !== normalizedUrl) {
+      // Check multiple possible locations for the final URL after redirects
+      const finalUrl = response.request?.responseURL ||
+                       response.request?.res?.responseUrl ||
+                       response.config?.url;
+
+      if (finalUrl && finalUrl !== normalizedUrl) {
+        try {
           const newBase = new URL(finalUrl);
           if (newBase.hostname !== baseUrl.hostname) {
-            console.log(`  🔀 Redirect detected: ${baseUrl.hostname} → ${newBase.hostname}`);
+            console.log(`  🔀 Redirect: ${baseUrl.hostname} → ${newBase.hostname}`);
             baseUrl = newBase;
           }
+        } catch (e) {
+          // Ignore URL parsing errors
         }
       }
 
@@ -106,7 +111,6 @@ async function crawlWebsite(startUrl, onProgress, onPageCrawled) {
       const newInternalLinks = [];
 
       // Extract all links
-      let internalLinksFound = 0;
       $('a[href]').each((i, elem) => {
         const href = $(elem).attr('href');
         if (!href) return;
@@ -124,19 +128,14 @@ async function crawlWebsite(startUrl, onProgress, onPageCrawled) {
         // Add internal links to crawl queue
         if (isInternalUrl(absoluteUrl)) {
           const normalized = normalizeUrl(absoluteUrl);
-          if (normalized && !visited.has(normalized) && !crawling.has(normalized)) {
+          if (normalized && !visited.has(normalized) && !crawling.has(normalizedUrl)) {
             if (!toVisit.includes(absoluteUrl)) {
               toVisit.push(absoluteUrl);
               newInternalLinks.push(absoluteUrl);
-              internalLinksFound++;
             }
           }
         }
       });
-
-      if (internalLinksFound > 0) {
-        console.log(`  📎 Found ${internalLinksFound} new internal links to crawl`);
-      }
 
       // Extract all images
       $('img[src]').each((i, elem) => {
