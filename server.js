@@ -20,6 +20,11 @@ app.post('/api/scan', async (req, res) => {
     return res.status(400).json({ error: 'URL is required' });
   }
 
+  // Auto-add https:// if no protocol specified
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    url = 'https://' + url;
+  }
+
   // Validate URL format
   try {
     new URL(url);
@@ -301,12 +306,16 @@ async function checkUrlInBackground(link, page, scan, crawledUrls) {
       }
 
       // Final attempt failed
-      scan.liveBrokenLinks.push({
-        url: link.url,
-        status: 0,
-        message: error.code || error.message || 'Request failed',
-        occurrences: [{ page: page.url, text: link.text, type: link.type }]
-      });
+      // Skip ECONNABORTED errors - these are typically rate limiting, not real broken links
+      const errorCode = error.code || error.message || 'Request failed';
+      if (!errorCode.includes('ECONNABORTED')) {
+        scan.liveBrokenLinks.push({
+          url: link.url,
+          status: 0,
+          message: errorCode,
+          occurrences: [{ page: page.url, text: link.text, type: link.type }]
+        });
+      }
       return { ok: false, status: 0 };
     }
   }

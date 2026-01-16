@@ -11,7 +11,7 @@ const MAX_PAGES = 10000; // Much higher limit (10k pages)
  * Crawl a website and discover all pages, links, and images with massive parallelization
  */
 async function crawlWebsite(startUrl, onProgress, onPageCrawled) {
-  const baseUrl = new URL(startUrl);
+  let baseUrl = new URL(startUrl); // Changed to 'let' so we can update it after redirects
   const visited = new Set();
   const toVisit = [startUrl];
   const pages = [];
@@ -33,10 +33,17 @@ async function crawlWebsite(startUrl, onProgress, onPageCrawled) {
   }
 
   // Check if URL is internal (same domain)
+  let debugCheckCount = 0;
   function isInternalUrl(url) {
     try {
       const parsed = new URL(url);
-      return parsed.hostname === baseUrl.hostname;
+      const isInternal = parsed.hostname === baseUrl.hostname;
+      // Debug: log first few checks on first page
+      if (pages.length === 0 && debugCheckCount < 5) {
+        console.log(`    🔍 Checking ${parsed.hostname} vs ${baseUrl.hostname}: ${isInternal ? 'internal' : 'external'}`);
+        debugCheckCount++;
+      }
+      return isInternal;
     } catch (e) {
       return false;
     }
@@ -72,6 +79,18 @@ async function crawlWebsite(startUrl, onProgress, onPageCrawled) {
         }
       });
 
+      // Update baseUrl if we got redirected (important for following internal links!)
+      if (response.request.res && response.request.res.responseUrl) {
+        const finalUrl = response.request.res.responseUrl;
+        if (finalUrl !== normalizedUrl) {
+          const newBase = new URL(finalUrl);
+          if (newBase.hostname !== baseUrl.hostname) {
+            console.log(`  🔀 Redirect detected: ${baseUrl.hostname} → ${newBase.hostname}`);
+            baseUrl = newBase;
+          }
+        }
+      }
+
       // Only process HTML pages
       const contentType = response.headers['content-type'] || '';
       if (!contentType.includes('text/html')) {
@@ -87,6 +106,7 @@ async function crawlWebsite(startUrl, onProgress, onPageCrawled) {
       const newInternalLinks = [];
 
       // Extract all links
+      let internalLinksFound = 0;
       $('a[href]').each((i, elem) => {
         const href = $(elem).attr('href');
         if (!href) return;
@@ -108,10 +128,15 @@ async function crawlWebsite(startUrl, onProgress, onPageCrawled) {
             if (!toVisit.includes(absoluteUrl)) {
               toVisit.push(absoluteUrl);
               newInternalLinks.push(absoluteUrl);
+              internalLinksFound++;
             }
           }
         }
       });
+
+      if (internalLinksFound > 0) {
+        console.log(`  📎 Found ${internalLinksFound} new internal links to crawl`);
+      }
 
       // Extract all images
       $('img[src]').each((i, elem) => {
