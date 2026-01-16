@@ -1,11 +1,98 @@
-const axios = require('axios');
+const https = require('https');
+const http = require('http');
 const cheerio = require('cheerio');
 const { URL } = require('url');
 
 // Proxy configuration from environment variables
 const { HttpsProxyAgent } = require('https-proxy-agent');
+const { HttpProxyAgent } = require('http-proxy-agent');
 const proxyUrl = process.env.https_proxy || process.env.HTTPS_PROXY || process.env.http_proxy || process.env.HTTP_PROXY;
-const httpsAgent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined;
+const noProxy = (process.env.no_proxy || process.env.NO_PROXY || '').split(',').map(h => h.trim().toLowerCase());
+
+// Check if a hostname should bypass the proxy
+function shouldBypassProxy(hostname) {
+  if (!proxyUrl) return true;
+  const lowerHost = hostname.toLowerCase();
+  return noProxy.some(pattern => {
+    if (pattern === lowerHost) return true;
+    if (pattern.startsWith('*') && lowerHost.endsWith(pattern.slice(1))) return true;
+    if (pattern.startsWith('.') && lowerHost.endsWith(pattern)) return true;
+    return false;
+  });
+}
+
+// Create a native HTTP(S) GET function that doesn't trigger bot detection like axios does
+async function fetchPage(url, timeout = 12000, redirectCount = 0) {
+  if (redirectCount > 5) {
+    throw new Error('Too many redirects');
+  }
+
+  return new Promise((resolve, reject) => {
+    const parsedUrl = new URL(url);
+    const isHttps = parsedUrl.protocol === 'https:';
+    const lib = isHttps ? https : http;
+
+    const useProxy = !shouldBypassProxy(parsedUrl.hostname);
+    const agent = useProxy && proxyUrl
+      ? (isHttps ? new HttpsProxyAgent(proxyUrl) : new HttpProxyAgent(proxyUrl))
+      : undefined;
+
+    const options = {
+      hostname: parsedUrl.hostname,
+      port: parsedUrl.port || (isHttps ? 443 : 80),
+      path: parsedUrl.pathname + parsedUrl.search,
+      method: 'GET',
+      agent: agent,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; DeadLinkChecker/4.0; +https://github.com/deadlinks)',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Host': parsedUrl.hostname
+      },
+      timeout: timeout
+    };
+
+    const req = lib.request(options, (res) => {
+      // Handle redirects manually
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        const redirectUrl = new URL(res.headers.location, url).href;
+        // Drain the response to free up resources
+        res.resume();
+        fetchPage(redirectUrl, timeout, redirectCount + 1).then(resolve).catch(reject);
+        return;
+      }
+
+      let data = '';
+      res.setEncoding('utf8');
+
+      res.on('data', (chunk) => {
+        data += chunk;
+      });
+
+      res.on('end', () => {
+        resolve({
+          status: res.statusCode,
+          statusText: res.statusMessage,
+          headers: res.headers,
+          data: data,
+          request: {
+            responseURL: url // Store final URL after redirects
+          }
+        });
+      });
+    });
+
+    req.on('error', (error) => {
+      reject(error);
+    });
+
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error('ETIMEDOUT'));
+    });
+
+    req.end();
+  });
+}
 
 // Configuration
 const CRAWL_CONCURRENCY = 20; // Crawl 20 pages simultaneously (reduced to avoid rate limits)
@@ -68,21 +155,8 @@ async function crawlWebsite(startUrl, onProgress, onPageCrawled) {
     crawling.add(normalizedUrl);
 
     try {
-      // Fetch the page
-      const response = await axios.get(normalizedUrl, {
-        timeout: CRAWL_TIMEOUT,
-        maxRedirects: 5,
-        httpsAgent: httpsAgent,
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.9',
-          'Accept-Encoding': 'gzip, deflate, br',
-          'DNT': '1',
-          'Connection': 'keep-alive',
-          'Upgrade-Insecure-Requests': '1'
-        }
-      });
+      // Fetch the page using native https (avoids axios bot detection issues)
+      const response = await fetchPage(normalizedUrl, CRAWL_TIMEOUT);
 
       // Update baseUrl if we got redirected (important for following internal links!)
       // Check multiple possible locations for the final URL after redirects
@@ -179,6 +253,7 @@ async function crawlWebsite(startUrl, onProgress, onPageCrawled) {
 
     } catch (error) {
       // Page failed to load
+      console.error(`Error crawling ${normalizedUrl}:`, error.message);
       const pageData = {
         url: normalizedUrl,
         title: 'Error loading page',
