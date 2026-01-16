@@ -128,7 +128,7 @@ async function crawlWebsite(startUrl, onProgress, onPageCrawled) {
         // Add internal links to crawl queue
         if (isInternalUrl(absoluteUrl)) {
           const normalized = normalizeUrl(absoluteUrl);
-          if (normalized && !visited.has(normalized) && !crawling.has(normalizedUrl)) {
+          if (normalized && !visited.has(normalized) && !crawling.has(normalized)) {
             if (!toVisit.includes(absoluteUrl)) {
               toVisit.push(absoluteUrl);
               newInternalLinks.push(absoluteUrl);
