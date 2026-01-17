@@ -5,7 +5,13 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "test": "playwright test",
+    "test:unit": "playwright test --project=unit",
+    "test:integration": "playwright test --project=integration",
+    "test:e2e": "playwright test --project=e2e",
+    "test:ui": "playwright test --ui",
+    "test:report": "playwright show-report test-results/html"
   },
   "keywords": [
     "link-checker",
@@ -23,5 +29,9 @@
     "express": "^4.18.2",
     "http-proxy-agent": "^7.0.2",
     "https-proxy-agent": "^7.0.6"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.57.0",
+    "playwright": "^1.57.0"
   }
 }

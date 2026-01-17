@@ -81,12 +81,25 @@ async function smartCrawl(startUrl, onProgress, onPageCrawled) {
 
 /**
  * Helper function to check if a site is likely a SPA
+ *
+ * A site is considered a SPA if:
+ * - Only 1 page was discovered, AND
+ * - That page has an error (can't determine link count), OR
+ * - That page has 0 links (typical of SPAs where links are JS-generated)
  */
 function isSPA(crawlResult) {
   if (!crawlResult || !crawlResult.pages) return false;
 
-  const successfulPages = crawlResult.pages.filter(p => !p.error);
-  return successfulPages.length === 1 && successfulPages[0].linksCount === 0;
+  // Only 1 page discovered
+  if (crawlResult.pages.length !== 1) return false;
+
+  const page = crawlResult.pages[0];
+
+  // If page has error, can't determine - but should try sitemap fallback
+  if (page.error) return true;
+
+  // If page has no links, likely SPA
+  return page.linksCount === 0;
 }
 
 module.exports = {
