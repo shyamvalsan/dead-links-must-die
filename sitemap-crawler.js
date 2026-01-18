@@ -1,5 +1,6 @@
 const https = require('https');
 const http = require('http');
+const cheerio = require('cheerio');
 const { URL } = require('url');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 const { HttpProxyAgent } = require('http-proxy-agent');
@@ -123,31 +124,149 @@ async function fetchAllSitemapUrls(sitemapUrl, visited = new Set()) {
   }
 }
 
+// Helper: Extract links and images from HTML
+function extractLinksFromHTML(html, pageUrl) {
+  const $ = cheerio.load(html);
+  const links = [];
+  const images = [];
+
+  // Convert relative URLs to absolute
+  function toAbsoluteUrl(url, currentPage) {
+    try {
+      return new URL(url, currentPage).href;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Extract all links
+  $('a[href]').each((i, elem) => {
+    const href = $(elem).attr('href');
+    if (!href) return;
+
+    const absoluteUrl = toAbsoluteUrl(href, pageUrl);
+    if (!absoluteUrl) return;
+
+    const text = $(elem).text().trim().substring(0, 100);
+    links.push({
+      url: absoluteUrl,
+      text: text || '(no text)',
+      type: 'link'
+    });
+  });
+
+  // Extract all images
+  $('img[src]').each((i, elem) => {
+    const src = $(elem).attr('src');
+    if (!src) return;
+
+    const absoluteUrl = toAbsoluteUrl(src, pageUrl);
+    if (!absoluteUrl) return;
+
+    const alt = $(elem).attr('alt') || '(no alt text)';
+    images.push({
+      url: absoluteUrl,
+      text: alt,
+      type: 'image'
+    });
+  });
+
+  return { links, images };
+}
+
 /**
  * Discover pages from sitemap.xml for JavaScript SPAs
+ * Fetches each page to extract links for checking
  * @param {string} baseUrl - Base URL of the site (e.g., "https://learn.netdata.cloud")
- * @returns {Promise<Array>} - Array of page objects with URLs
+ * @param {boolean} fetchPages - Whether to fetch each page to extract links (default: true)
+ * @returns {Promise<Array>} - Array of page objects with URLs and links
  */
-async function discoverFromSitemap(baseUrl) {
+async function discoverFromSitemap(baseUrl, fetchPages = true) {
   console.log(`\n🗺️  Discovering pages from sitemap for: ${baseUrl}`);
 
-  const parsedUrl = new URL(baseUrl);
-  const sitemapUrl = `${parsedUrl.protocol}//${parsedUrl.hostname}/sitemap.xml`;
+  // Use new URL to properly handle port numbers
+  const sitemapUrl = new URL('/sitemap.xml', baseUrl).href;
 
   try {
     const urls = await fetchAllSitemapUrls(sitemapUrl);
 
-    console.log(`\n✅ Sitemap discovery complete: ${urls.length} pages found\n`);
+    console.log(`\n✅ Sitemap discovery complete: ${urls.length} pages found`);
 
-    // Convert to page objects compatible with crawler format
-    return urls.map(url => ({
-      url: url,
-      title: 'From sitemap',
-      links: [],
-      linksCount: 0,
-      imagesCount: 0,
-      source: 'sitemap'
-    }));
+    if (!fetchPages) {
+      // Quick mode: Just return URLs without fetching
+      console.log(`⚡ Quick mode: Skipping page fetch\n`);
+      return urls.map(url => ({
+        url: url,
+        title: 'From sitemap',
+        links: [],
+        linksCount: 0,
+        imagesCount: 0,
+        source: 'sitemap'
+      }));
+    }
+
+    // Fetch each page to extract links
+    console.log(`📥 Fetching ${urls.length} pages to extract links...`);
+
+    const pages = [];
+    const BATCH_SIZE = 10; // Fetch 10 pages at a time
+
+    for (let i = 0; i < urls.length; i += BATCH_SIZE) {
+      const batch = urls.slice(i, i + BATCH_SIZE);
+
+      const batchResults = await Promise.all(
+        batch.map(async (url) => {
+          try {
+            const { data, status } = await fetchContent(url);
+
+            if (status !== 200) {
+              return {
+                url,
+                title: `HTTP ${status}`,
+                links: [],
+                linksCount: 0,
+                imagesCount: 0,
+                source: 'sitemap',
+                error: `HTTP ${status}`
+              };
+            }
+
+            const $ = cheerio.load(data);
+            const title = $('title').text() || 'Untitled';
+            const { links, images } = extractLinksFromHTML(data, url);
+
+            return {
+              url,
+              title,
+              links: [...links, ...images],
+              linksCount: links.length,
+              imagesCount: images.length,
+              source: 'sitemap'
+            };
+          } catch (error) {
+            return {
+              url,
+              title: 'Error loading page',
+              links: [],
+              linksCount: 0,
+              imagesCount: 0,
+              source: 'sitemap',
+              error: error.message
+            };
+          }
+        })
+      );
+
+      pages.push(...batchResults);
+
+      // Show progress
+      if ((i + BATCH_SIZE) % 50 === 0 || i + BATCH_SIZE >= urls.length) {
+        console.log(`  📊 Progress: ${pages.length}/${urls.length} pages fetched`);
+      }
+    }
+
+    console.log(`\n✅ Fetched and processed ${pages.length} pages from sitemap\n`);
+    return pages;
 
   } catch (error) {
     console.error(`❌ Failed to fetch sitemap: ${error.message}`);
