@@ -43,6 +43,11 @@ function getDomain(url) {
  * Check if domain exists via DNS lookup (fast pre-check)
  */
 async function checkDomainDNS(domain) {
+  // Skip DNS check for localhost and loopback addresses
+  if (domain === 'localhost' || domain === '127.0.0.1' || domain.startsWith('127.')) {
+    return { exists: true };
+  }
+
   try {
     await dns.resolve(domain);
     return { exists: true };
