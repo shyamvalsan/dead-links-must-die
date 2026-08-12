@@ -121,16 +121,16 @@ async function detectSPA(url) {
 
 ```bash
 # Test traditional crawling (local mock site)
-node test-local-crawler.js
+node dev-tests/test-local-crawler.js
 
 # Test sitemap crawling (learn.netdata.cloud)
-node test-sitemap-crawler.js
+node dev-tests/test-sitemap-crawler.js
 
 # Test smart crawler (both www and learn.netdata.cloud)
-node test-smart-crawler.js
+node dev-tests/test-smart-crawler.js
 
 # Test with netdata.cloud sites
-node test-netdata-working.js
+node dev-tests/test-netdata-working.js
 ```
 
 ---
@@ -225,7 +225,7 @@ Example:
 ```bash
 export https_proxy=http://proxy.example.com:8080
 export no_proxy=localhost,127.0.0.1
-node test-smart-crawler.js
+node dev-tests/test-smart-crawler.js
 ```
 
 ---

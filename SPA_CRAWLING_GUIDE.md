@@ -37,7 +37,7 @@ console.log(`Found ${pages.length} pages`); // 808 pages!
 
 ```bash
 # Test sitemap crawler
-node test-sitemap-crawler.js
+node dev-tests/test-sitemap-crawler.js
 ```
 
 ### Pros

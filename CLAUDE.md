@@ -309,8 +309,8 @@ npm run test:e2e           # E2E tests only
 
 ### Test Specific Site
 ```bash
-node test-smart-crawler.js
-node test-netdata-working.js
+node dev-tests/test-smart-crawler.js
+node dev-tests/test-netdata-working.js
 ```
 
 ### Debug Crawler

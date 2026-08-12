@@ -37,7 +37,7 @@
     "website-validator"
   ],
   "author": "shyamvalsan (https://shyamvalsan.com)",
-  "license": "MIT",
+  "license": "GPL-3.0-or-later",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/shyamvalsan/dead-links-must-die.git"
