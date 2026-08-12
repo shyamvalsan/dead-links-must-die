@@ -3,6 +3,21 @@
   "version": "1.0.0",
   "description": "A simple, powerful tool to find and eliminate dead links and broken images on any website",
   "main": "server.js",
+  "bin": {
+    "dead-links-must-die": "bin/dead-links-must-die.js"
+  },
+  "files": [
+    "bin/",
+    "public/",
+    "server.js",
+    "checker.js",
+    "crawler.js",
+    "smart-crawler.js",
+    "sitemap-crawler.js"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
@@ -21,8 +36,16 @@
     "seo",
     "website-validator"
   ],
-  "author": "",
+  "author": "shyamvalsan (https://shyamvalsan.com)",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shyamvalsan/dead-links-must-die.git"
+  },
+  "homepage": "https://github.com/shyamvalsan/dead-links-must-die#readme",
+  "bugs": {
+    "url": "https://github.com/shyamvalsan/dead-links-must-die/issues"
+  },
   "dependencies": {
     "axios": "^1.6.0",
     "cheerio": "^1.0.0-rc.12",
