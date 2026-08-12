@@ -29,11 +29,11 @@ All with real-time progress updates and an ETA so you're not left wondering if i
 
 ## Installation
 
-You'll need [Node.js](https://nodejs.org/) installed (version 14 or newer should work fine).
+You'll need [Node.js](https://nodejs.org/) installed (version 18 or newer).
 
 ```bash
 # Clone this repository
-git clone https://github.com/yourusername/dead-links-must-die.git
+git clone https://github.com/shyamvalsan/dead-links-must-die.git
 
 # Navigate into the directory
 cd dead-links-must-die
@@ -142,7 +142,7 @@ Found a bug? Have an idea for improvement? Pull requests are welcome! This is a 
 
 ## License
 
-MIT License - see the [LICENSE](LICENSE) file for details. Use it, modify it, share it. Just don't blame me if it finds more broken links than you were hoping for.
+GPL-3.0 - see the [LICENSE](LICENSE) file for details. Use it, modify it, share it. Just don't blame me if it finds more broken links than you were hoping for.
 
 ## Disclaimer
 
